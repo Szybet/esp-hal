@@ -290,6 +290,7 @@ pub fn load_lp_code(input: TokenStream) -> TokenStream {
         last_address = section.address() + section.size();
     }
 
+    /*
     let magic_symbol = obj_file
         .symbols()
         .find(|s| s.name().unwrap().starts_with("__ULP_MAGIC_"));
@@ -319,6 +320,8 @@ pub fn load_lp_code(input: TokenStream) -> TokenStream {
         })
         .filter(|v: &proc_macro2::TokenStream| !v.is_empty())
         .collect();
+    */
+    let args: Vec<proc_macro2::TokenStream> = Vec::new();
 
     #[cfg(feature = "has-lp-core")]
     let imports = quote! {
