@@ -1,4 +1,15 @@
-//! Wi-Fi
+//! # Wi-Fi (Station, Access Point and Station/AP-coexistence)
+//!
+//! ## Introduction
+//!
+//! The Wi-Fi module provides support for configuring and monitoring the Wi-Fi networking
+//! functionality. This includes configuration for:
+#![doc = concat!("- Station mode (aka STA mode or Wi-Fi client mode). ", chip_pretty!(), " connects to an access point.")]
+#![doc = concat!("- AP mode (aka Soft-AP mode or Access Point mode). Stations connect to the ", chip_pretty!(),".")]
+#![doc = concat!("- Station/AP-coexistence mode (", chip_pretty!(), " is concurrently an access point and a station connected to another access point).")]
+//! - Various security modes for the above (WPA, WPA2, etc.)
+//! - Scanning for access points (active & passive scanning).
+//! - Promiscuous mode for monitoring of IEEE802.11 Wi-Fi packets.
 //!
 //! ## Expected heap memory usage
 //!
@@ -13,6 +24,26 @@
 //!
 //! * Station: 47 - 57k
 //! * Open Access Point: 53 - 63k
+//!
+//! ## Wi-Fi performance considerations
+//!
+//! The default configuration is quite conservative to reduce power and memory consumption.
+//!
+//! There are a number of settings which influence the general performance (at the cost of memory
+//! usage).
+//!
+//! Optimal settings are chip and applications specific. You can get inspiration from the [ESP-IDF examples](https://github.com/espressif/esp-idf/tree/release/v5.3/examples/wifi/iperf)
+//!
+//! Please note that the configuration keys are usually named slightly different and not all
+//! configuration keys apply.
+//!
+//! By default the power-saving mode is [PowerSaveMode::None]
+//! and `ESP_PHY_CONFIG_PHY_ENABLE_USB` is enabled by default.
+//!
+//! In addition pay attention to these configuration keys:
+//! - `ESP_RADIO_CONFIG_RX_QUEUE_SIZE`
+//! - `ESP_RADIO_CONFIG_TX_QUEUE_SIZE`
+//! - `ESP_RADIO_CONFIG_MAX_BURST_SIZE`
 
 use alloc::{borrow::ToOwned, collections::vec_deque::VecDeque, str, vec::Vec};
 use core::{
@@ -253,17 +284,27 @@ impl SecondaryChannel {
             _ => panic!("Invalid secondary channel value: {}", raw),
         }
     }
+
+    #[cfg(any(feature = "sniffer", feature = "esp-now"))]
+    fn from_raw_or_default(raw: u32) -> Self {
+        match raw {
+            0 => SecondaryChannel::None,
+            1 => SecondaryChannel::Above,
+            2 => SecondaryChannel::Below,
+            _ => SecondaryChannel::None,
+        }
+    }
 }
 
 #[cfg_attr(docsrs, procmacros::doc_replace(
-    "hint_5g" => {
-        cfg(wifi_has_5g) => "The default is [BandMode::Auto].",
-        _ => "The default is [BandMode::_2_4G]"
+    "default_band_mode" => {
+        cfg(wifi_has_5g) => "BandMode::Auto",
+        _ => "BandMode::_2_4G"
     },
 ))]
 /// Wi-Fi band mode.
 ///
-/// # {hint_5g}
+/// The default is [`__default_band_mode__`].
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -851,9 +892,6 @@ pub enum WifiError {
     /// Out of memory.
     OutOfMemory,
 
-    /// Wi-Fi driver was not started by [esp_wifi_start].
-    NotStarted,
-
     /// SSID is invalid.
     InvalidSsid,
 
@@ -873,7 +911,6 @@ impl WifiError {
         match code as u32 {
             crate::sys::include::ESP_ERR_NO_MEM => WifiError::OutOfMemory,
             crate::sys::include::ESP_ERR_INVALID_ARG => WifiError::InvalidArguments,
-            crate::sys::include::ESP_ERR_WIFI_NOT_STARTED => WifiError::NotStarted,
             crate::sys::include::ESP_ERR_WIFI_SSID => WifiError::InvalidSsid,
             crate::sys::include::ESP_ERR_WIFI_PASSWORD => WifiError::InvalidPassword,
             crate::sys::include::ESP_ERR_WIFI_NOT_CONNECT => WifiError::NotConnected,
@@ -885,12 +922,10 @@ impl WifiError {
 impl core::error::Error for WifiError {}
 
 #[cfg(esp32)]
-fn set_mac_time_update_cb(wifi: crate::hal::peripherals::WIFI<'_>) {
-    use esp_phy::MacTimeExt;
-
+fn set_mac_time_update_cb(_wifi: crate::hal::peripherals::WIFI<'_>) {
     use crate::sys::include::esp_wifi_internal_update_mac_time;
     unsafe {
-        wifi.set_mac_time_update_cb(|duration| {
+        esp_phy::set_mac_time_update_cb(|duration| {
             esp_wifi_internal_update_mac_time(duration.as_micros() as u32);
         });
     }
@@ -900,7 +935,7 @@ pub(crate) fn wifi_init(_wifi: crate::hal::peripherals::WIFI<'_>) -> Result<(), 
     #[cfg(esp32)]
     set_mac_time_update_cb(_wifi);
     unsafe {
-        #[cfg(coex)]
+        #[cfg(feature = "coex")]
         esp_wifi_result!(coex_init())?;
 
         esp_wifi_result!(esp_wifi_init_internal(addr_of!(internal::G_CONFIG)))?;
@@ -925,7 +960,7 @@ pub(crate) fn wifi_init(_wifi: crate::hal::peripherals::WIFI<'_>) -> Result<(), 
     }
 }
 
-#[cfg(coex)]
+#[cfg(feature = "coex")]
 pub(crate) fn coex_initialize() -> i32 {
     debug!("call coex-initialize");
     unsafe {
@@ -946,15 +981,15 @@ pub(crate) fn coex_initialize() -> i32 {
 }
 
 pub(crate) unsafe extern "C" fn coex_init() -> i32 {
-    #[cfg(coex)]
-    {
-        debug!("coex-init");
-        #[allow(clippy::needless_return)]
-        return unsafe { crate::sys::include::coex_init() };
-    }
+    debug!("coex-init");
 
-    #[cfg(not(coex))]
-    0
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "coex")] {
+            unsafe { crate::sys::include::coex_init() }
+        } else {
+            0
+        }
+    }
 }
 
 fn wifi_deinit() -> Result<(), crate::WifiError> {
@@ -1161,11 +1196,13 @@ enum InterfaceType {
 
 impl InterfaceType {
     fn mac_address(&self) -> [u8; 6] {
-        use esp_hal::efuse::{Efuse, InterfaceMacAddress};
+        use esp_hal::efuse::InterfaceMacAddress;
         let mac = match self {
-            InterfaceType::Station => Efuse::interface_mac_address(InterfaceMacAddress::Station),
+            InterfaceType::Station => {
+                esp_hal::efuse::interface_mac_address(InterfaceMacAddress::Station)
+            }
             InterfaceType::AccessPoint => {
-                Efuse::interface_mac_address(InterfaceMacAddress::AccessPoint)
+                esp_hal::efuse::interface_mac_address(InterfaceMacAddress::AccessPoint)
             }
         };
 
@@ -1197,20 +1234,16 @@ impl InterfaceType {
 
         if self.can_send() {
             // even checking for !Uninitialized would be enough to not crash
-            match self {
+            let can_send = match self {
                 InterfaceType::Station => {
-                    if !matches!(station_state(), WifiStationState::Connected) {
-                        return None;
-                    }
+                    matches!(station_state(), WifiStationState::Connected)
                 }
                 InterfaceType::AccessPoint => {
-                    if !matches!(access_point_state(), WifiAccessPointState::Started) {
-                        return None;
-                    }
+                    matches!(access_point_state(), WifiAccessPointState::Started)
                 }
-            }
+            };
 
-            Some(WifiTxToken { mode: *self })
+            can_send.then_some(WifiTxToken { mode: *self })
         } else {
             None
         }
@@ -1258,21 +1291,19 @@ impl InterfaceType {
     }
 
     fn link_state(&self) -> embassy_net_driver::LinkState {
-        match self {
+        let is_up = match self {
             InterfaceType::Station => {
-                if matches!(station_state(), WifiStationState::Connected) {
-                    embassy_net_driver::LinkState::Up
-                } else {
-                    embassy_net_driver::LinkState::Down
-                }
+                matches!(station_state(), WifiStationState::Connected)
             }
             InterfaceType::AccessPoint => {
-                if matches!(access_point_state(), WifiAccessPointState::Started) {
-                    embassy_net_driver::LinkState::Up
-                } else {
-                    embassy_net_driver::LinkState::Down
-                }
+                matches!(access_point_state(), WifiAccessPointState::Started)
             }
+        };
+
+        if is_up {
+            embassy_net_driver::LinkState::Up
+        } else {
+            embassy_net_driver::LinkState::Down
         }
     }
 }
@@ -1426,8 +1457,7 @@ pub struct RxControlInfo {
     pub ampdu_cnt: u32,
     /// Primary channel on which the packet is received.
     pub channel: u32,
-    /// Secondary channel on which the packet is received: 0 for none, 1 for
-    /// above, 2 for below.
+    /// Secondary channel on which the packet is received.
     pub secondary_channel: SecondaryChannel,
     /// Timestamp of when the packet is received, in microseconds. Precise only
     /// if modem sleep or light sleep is not enabled.
@@ -1473,7 +1503,7 @@ pub struct RxControlInfo {
     pub rx_channel_estimate_info_vld: u32,
     /// Length of the channel estimation.
     pub rx_channel_estimate_len: u32,
-    /// The secondary channel if in HT40.
+    /// The secondary channel if in HT40. Otherwise invalid.
     pub secondary_channel: SecondaryChannel,
     /// Primary channel on which the packet is received.
     pub channel: u32,
@@ -1524,7 +1554,7 @@ pub struct RxControlInfo {
     pub rx_channel_estimate_info_vld: u32,
     /// Length of the channel estimation.
     pub rx_channel_estimate_len: u32,
-    /// The secondary channel if in HT40.
+    /// The secondary channel if in HT40. Otherwise invalid.
     pub secondary_channel: SecondaryChannel,
     /// Primary channel on which the packet is received.
     pub channel: u32,
@@ -1571,7 +1601,9 @@ impl RxControlInfo {
                 sgi: (*rx_cntl).sgi(),
                 ampdu_cnt: (*rx_cntl).ampdu_cnt(),
                 channel: (*rx_cntl).channel(),
-                secondary_channel: SecondaryChannel::from_raw((*rx_cntl).secondary_channel()),
+                secondary_channel: SecondaryChannel::from_raw_or_default(
+                    (*rx_cntl).secondary_channel(),
+                ),
                 timestamp: Instant::EPOCH + Duration::from_micros((*rx_cntl).timestamp() as u64),
                 noise_floor: (*rx_cntl).noise_floor(),
                 ant: (*rx_cntl).ant(),
@@ -1592,7 +1624,7 @@ impl RxControlInfo {
                 cur_bb_format: (*rx_cntl).cur_bb_format(),
                 rx_channel_estimate_info_vld: (*rx_cntl).rx_channel_estimate_info_vld(),
                 rx_channel_estimate_len: (*rx_cntl).rx_channel_estimate_len(),
-                secondary_channel: SecondaryChannel::from_raw((*rx_cntl).second()),
+                secondary_channel: SecondaryChannel::from_raw_or_default((*rx_cntl).second()),
                 channel: (*rx_cntl).channel(),
                 noise_floor: (*rx_cntl).noise_floor() as _,
                 is_group: (*rx_cntl).is_group(),
@@ -1616,7 +1648,7 @@ impl RxControlInfo {
                 cur_bb_format: (*rx_cntl).cur_bb_format(),
                 rx_channel_estimate_info_vld: (*rx_cntl).rx_channel_estimate_info_vld(),
                 rx_channel_estimate_len: (*rx_cntl).rx_channel_estimate_len(),
-                secondary_channel: SecondaryChannel::from_raw((*rx_cntl).second()),
+                secondary_channel: SecondaryChannel::from_raw_or_default((*rx_cntl).second()),
                 channel: (*rx_cntl).channel(),
                 noise_floor: (*rx_cntl).noise_floor() as _,
                 is_group: (*rx_cntl).is_group(),
@@ -1633,7 +1665,9 @@ impl RxControlInfo {
 }
 
 #[doc(hidden)]
-// These token doesn't need the debug trait, they aren't needed publicly.
+/// This token is deliberately hidden to avoid polluting the crate namespace with these typically
+/// advanced usage types. We can't make them private, as they're used in various built-in network
+/// stack impls. Once we are ready to stabilize these, we can remove the doc hidden cfg.
 pub struct WifiRxToken {
     mode: InterfaceType,
 }
@@ -1666,7 +1700,9 @@ impl WifiRxToken {
 }
 
 #[doc(hidden)]
-// These token doesn't need the debug trait, they aren't needed publicly.
+/// This token is deliberately hidden to avoid polluting the crate namespace with these typically
+/// advanced usage types. We can't make them private, as they're used in various built-in network
+/// stack impls. Once we are ready to stabilize these, we can remove the doc hidden cfg.
 pub struct WifiTxToken {
     mode: InterfaceType,
 }
@@ -1753,9 +1789,9 @@ macro_rules! esp_wifi_result {
 
 pub(crate) mod embassy {
     use embassy_net_driver::{Capabilities, Driver, HardwareAddress, RxToken, TxToken};
-    use esp_hal::asynch::AtomicWaker;
 
     use super::*;
+    use crate::asynch::AtomicWaker;
 
     // We can get away with a single tx waker because the transmit queue is shared
     // between interfaces.
@@ -2012,7 +2048,7 @@ impl CountryInfo {
 }
 
 /// Wi-Fi configuration.
-#[derive(Clone, Copy, BuilderLite, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, BuilderLite, Debug, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ControllerConfig {
     /// Country info.
@@ -2108,6 +2144,10 @@ pub struct ControllerConfig {
     /// stations and APs.
     #[builder_lite(unstable)]
     rx_ba_win: u8,
+
+    /// Initial Wi-Fi configuration.
+    #[builder_lite(reference)]
+    initial_config: Config,
 }
 
 impl Default for ControllerConfig {
@@ -2129,6 +2169,8 @@ impl Default for ControllerConfig {
             rx_ba_win: 6,
 
             country_info: CountryInfo::from(*b"CN"),
+
+            initial_config: Config::Station(StationConfig::default()),
         }
     }
 }
@@ -2145,7 +2187,8 @@ impl ControllerConfig {
 }
 
 #[procmacros::doc_replace]
-/// Create a Wi-Fi controller and it's associated interfaces.
+/// Create a Wi-Fi controller and it's associated interfaces. The default initial configuration is
+/// [Config::Station(StationConfig::default())].
 ///
 /// Dropping the controller will deinitialize / stop Wi-Fi.
 ///
@@ -2156,8 +2199,7 @@ impl ControllerConfig {
 ///
 /// ```rust,no_run
 /// # {before_snippet}
-/// let (controller, interfaces) =
-///     esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
+/// let (controller, interfaces) = esp_radio::wifi::new(peripherals.WIFI, Default::default())?;
 /// # {after_snippet}
 /// ```
 pub fn new<'d>(
@@ -2165,11 +2207,6 @@ pub fn new<'d>(
     config: ControllerConfig,
 ) -> Result<(WifiController<'d>, Interfaces<'d>), WifiError> {
     let _guard = RadioRefGuard::new();
-
-    // TODO: Re-check, if not having interrupts disabled pre-condition is still true
-    if crate::is_interrupts_disabled() {
-        return Err(WifiError::Unsupported);
-    }
 
     config.validate();
 
@@ -2226,7 +2263,7 @@ pub fn new<'d>(
     crate::wifi::wifi_init(device)?;
 
     // At some point the "High-speed ADC" entropy source became available.
-    #[cfg(not(esp32c5))]
+    #[cfg(rng_trng_supported)]
     unsafe {
         esp_hal::rng::TrngSource::increase_entropy_source_counter()
     };
@@ -2243,6 +2280,8 @@ pub fn new<'d>(
     controller.set_country_info(&config.country_info)?;
     // Set a sane default power saving mode. The blob default is not the best for bandwidth.
     controller.set_power_saving(PowerSaveMode::default())?;
+
+    controller.set_config(&config.initial_config)?;
 
     Ok((
         controller,
@@ -2265,8 +2304,10 @@ pub fn new<'d>(
 
 /// Wi-Fi controller.
 ///
-/// After initial creation via [new] the controller is in stopped state.
-/// Use [WifiController::set_config] to set the configuration and start the controller.
+/// Calling [new] starts the controller.
+///
+/// When the controller is dropped, the Wi-Fi driver is
+/// deinitialized and Wi-Fi is stopped.
 #[non_exhaustive]
 pub struct WifiController<'d> {
     _guard: RadioRefGuard,
@@ -2286,7 +2327,7 @@ impl Drop for WifiController<'_> {
             set_access_point_state(WifiAccessPointState::Uninitialized);
             set_station_state(WifiStationState::Uninitialized);
 
-            #[cfg(not(esp32c5))]
+            #[cfg(rng_trng_supported)]
             esp_hal::rng::TrngSource::decrease_entropy_source_counter(unsafe {
                 esp_hal::Internal::conjure()
             });
@@ -2323,15 +2364,14 @@ impl WifiController<'_> {
     ///
     /// ```rust,no_run
     /// # {before_snippet}
-    /// # use esp_radio::wifi::{ap::AccessPointConfig, Config};
+    /// # use esp_radio::wifi::{ap::AccessPointConfig, Config, ControllerConfig};
     /// use esp_radio::wifi::Protocols;
     ///
-    /// let (mut wifi_controller, _interfaces) =
-    ///     esp_radio::wifi::new(peripherals.WIFI, Default::default())?;
-    ///
-    /// wifi_controller.set_config(&Config::AccessPoint(
+    /// let controller_config = ControllerConfig::default().with_initial_config(Config::AccessPoint(
     ///     AccessPointConfig::default().with_ssid("esp-radio"),
-    /// ))?;
+    /// ));
+    /// let (mut wifi_controller, _interfaces) =
+    ///     esp_radio::wifi::new(peripherals.WIFI, controller_config)?;
     ///
     /// wifi_controller.set_protocols(Protocols::default());
     /// # {after_snippet}
@@ -2480,6 +2520,11 @@ impl WifiController<'_> {
     /// If you don't intend to use Wi-Fi anymore at all consider tearing down
     /// Wi-Fi completely.
     ///
+    /// ## Errors
+    ///
+    /// If this function returns an error, the Wi-Fi mode is reset to `NULL` and
+    /// the controller is stopped.
+    ///
     /// ## Example
     ///
     /// ```rust,no_run
@@ -2496,6 +2541,25 @@ impl WifiController<'_> {
     /// controller.set_config(&station_config)?;
     /// # {after_snippet}
     pub fn set_config(&mut self, conf: &Config) -> Result<(), WifiError> {
+        // We/the driver might have applied a partial configuration so we better disable
+        // AccessPoint/Station just in case the caller ignores the error we return here -
+        // they will run into further errors this way.
+        struct ResetModeOnDrop;
+        impl ResetModeOnDrop {
+            /// Prevent resetting the Wi-Fi mode when the guard is dropped.
+            fn defuse(self) {
+                core::mem::forget(self);
+            }
+        }
+        impl Drop for ResetModeOnDrop {
+            fn drop(&mut self) {
+                unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_NULL) };
+                unwrap!(WifiController::stop_impl());
+            }
+        }
+
+        let reset_mode_on_error = ResetModeOnDrop;
+
         conf.validate()?;
 
         let mut previous_mode = 0u32;
@@ -2510,7 +2574,7 @@ impl WifiController<'_> {
         };
 
         if previous_mode != mode {
-            self.stop_impl()?;
+            Self::stop_impl()?;
         }
 
         esp_wifi_result!(unsafe { esp_wifi_set_mode(mode) })?;
@@ -2518,80 +2582,59 @@ impl WifiController<'_> {
         match conf {
             Config::Station(config) => {
                 self.apply_sta_config(config)?;
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)?;
             }
             Config::AccessPoint(config) => {
                 self.apply_ap_config(config)?;
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_AP, &config.protocols)
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_AP, &config.protocols)?;
             }
             Config::AccessPointStation(sta_config, ap_config) => {
                 self.apply_ap_config(ap_config)?;
                 Self::apply_protocols(wifi_interface_t_WIFI_IF_AP, &ap_config.protocols)?;
                 self.apply_sta_config(sta_config)?;
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &sta_config.protocols)
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &sta_config.protocols)?;
             }
             #[cfg(feature = "wifi-eap")]
             Config::EapStation(config) => {
                 self.apply_sta_eap_config(config)?;
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)?;
             }
         }
-        .inspect_err(|_| {
-            // we/the driver might have applied a partial configuration
-            // so we better disable AccessPoint/Station just in case the caller ignores the error we
-            // return here - they will run into futher errors this way
-            unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_NULL) };
-        })?;
 
         if previous_mode != mode {
             set_access_point_state(WifiAccessPointState::Starting);
             set_station_state(WifiStationState::Starting);
 
             // `esp_wifi_start` is actually not async - i.e. we get the even before it returns
-            let res = esp_wifi_result!(unsafe { esp_wifi_start() });
-            if res.is_err() {
-                unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_NULL) };
-                return res;
-            }
+            esp_wifi_result!(unsafe { esp_wifi_start() })?;
         }
+
+        reset_mode_on_error.defuse();
 
         Ok(())
     }
 
-    #[cfg_attr(docsrs, procmacros::doc_replace(
-        "hint_5g" => {
-            cfg(wifi_has_5g) => "
-When the WiFi band mode is set to [BandMode::_5G], it operates exclusively on the 5GHz channels.
+    /// Set Wi-Fi band mode.
+    ///
+    /// When the Wi-Fi band mode is set to [`BandMode::_2_4G`], it operates exclusively on the
+    /// 2.4GHz channels.
+    #[cfg_attr(
+        wifi_has_5g,
+        doc = r"
+When the WiFi band mode is set to [`BandMode::_5G`], it operates exclusively on the 5GHz channels.
 
-When the WiFi band mode is set to [BandMode::Auto], it can operate on both the 2.4GHz and
+When the WiFi band mode is set to [`BandMode::Auto`], it can operate on both the 2.4GHz and
 5GHz channels.
 
 When a WiFi band mode change triggers a band change, if no channel is set for the current
 band, a default channel will be assigned: channel 1 for 2.4G band and channel 36 for 5G
 band.
-
-When a WiFi band mode change triggers a band change, if no channel is set for the current
-band, a default channel will be assigned: channel 1 for 2.4G band and channel 36 for 5G
-band.
-            ",
-            _ => ""
-        },
-    ))]
-    /// Set WiFi band mode.
-    ///
-    /// When the WiFi band mode is set to [BandMode::_2_4G], it operates exclusively on the 2.4GHz
-    /// channels.
-    ///
-    /// # {hint_5g}
-    ///
+"
+    )]
     /// The controller needs to be configured and started before setting the band mode.
     #[instability::unstable]
     pub fn set_band_mode(&mut self, band_mode: BandMode) -> Result<(), WifiError> {
         // Wi-Fi needs to be started in order to set the band mode
-        if !self.is_started() {
-            return Err(WifiError::NotStarted);
-        }
-
         esp_wifi_result!(unsafe { esp_wifi_set_band_mode(band_mode.to_raw()) })
     }
 
@@ -2660,18 +2703,15 @@ band.
         Ok((primary, SecondaryChannel::from_raw(secondary)))
     }
 
-    #[cfg_attr(docsrs, procmacros::doc_replace(
-        "hint_5g" => {
-            cfg(wifi_has_5g) => "
+    /// Sets the primary and secondary Wi-Fi channel.
+    #[cfg_attr(
+        wifi_has_5g,
+        doc = r"
+
 When operating in 5 GHz band, the second channel is automatically determined by the primary
 channel according to the 802.11 standard. Any manually configured second channel will be
-ignored.",
-            _ => ""
-        },
-    ))]
-    /// Sets the primary and secondary Wi-Fi channel.
-    ///
-    /// # {hint_5g}
+ignored."
+    )]
     #[instability::unstable]
     pub fn set_channel(
         &mut self,
@@ -2691,7 +2731,7 @@ ignored.",
         esp_wifi_result!(unsafe { esp_wifi_set_max_tx_power(power) })
     }
 
-    fn stop_impl(&mut self) -> Result<(), WifiError> {
+    fn stop_impl() -> Result<(), WifiError> {
         set_access_point_state(WifiAccessPointState::Stopping);
         set_station_state(WifiStationState::Stopping);
 
@@ -2710,40 +2750,6 @@ ignored.",
 
         // TODO: implement ROAMING
         esp_wifi_result!(unsafe { esp_wifi_disconnect_internal() })
-    }
-
-    #[procmacros::doc_replace]
-    /// Checks if the Wi-Fi controller is started. Returns true if Station and/or AccessPoint are
-    /// started.
-    /// ## Example
-    ///
-    /// ```rust,no_run
-    /// # {before_snippet}
-    /// # let (controller, _interfaces) = esp_radio::wifi::new(peripherals.WIFI, Default::default())?;
-    /// if controller.is_started() {
-    ///     println!("Wi-Fi is started");
-    /// } else {
-    ///     println!("Wi-Fi is not started");
-    /// }
-    /// # {after_snippet}
-    /// ```
-    #[instability::unstable]
-    pub fn is_started(&self) -> bool {
-        if matches!(
-            crate::wifi::station_state(),
-            WifiStationState::Started
-                | WifiStationState::Connected
-                | WifiStationState::Disconnected
-        ) {
-            return true;
-        }
-        if matches!(
-            crate::wifi::access_point_state(),
-            WifiAccessPointState::Started
-        ) {
-            return true;
-        }
-        false
     }
 
     #[procmacros::doc_replace]

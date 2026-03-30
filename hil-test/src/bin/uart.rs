@@ -1,6 +1,6 @@
 //! UART Test
 
-//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32h2 esp32s2 esp32s3
+//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32h2 esp32s2 esp32s3
 //% FEATURES: unstable embassy
 
 #![no_std]
@@ -15,7 +15,7 @@ mod tests {
         delay::Delay,
         gpio::{AnyPin, Pin},
         time::Duration,
-        uart::{self, ClockSource, Uart},
+        uart::{self, BaudrateTolerance, ClockSource, Uart},
     };
 
     struct Context {
@@ -103,7 +103,8 @@ mod tests {
         ];
 
         for config in configs {
-            uart.apply_config(&config).unwrap();
+            uart.apply_config(&config)
+                .unwrap_or_else(|e| panic!("{:?}: {:?}", e, config));
 
             uart.write(&[0x42]).unwrap();
             let mut byte = [0u8; 1];
@@ -170,7 +171,7 @@ mod tests {
         cfg_if::cfg_if! {
             if #[cfg(esp32c2)] {
                 let fastest_clock_source = ClockSource::PllF40m;
-            } else if #[cfg(any(esp32c5, esp32c6))] {
+            } else if #[cfg(any(esp32c5, esp32c6, esp32c61))] {
                 let fastest_clock_source = ClockSource::PllF80m;
             } else if #[cfg(esp32h2)] {
                 let fastest_clock_source = ClockSource::PllF48m;
@@ -192,16 +193,15 @@ mod tests {
             (5_000_000, fastest_clock_source),
         ];
 
-        // TODO: we need a way to verify these baud rates are actually what we want.
-
         let mut byte_to_write = 0xA5;
         for (baudrate, clock_source) in configs {
             uart.apply_config(
                 &uart::Config::default()
                     .with_baudrate(baudrate)
-                    .with_clock_source(clock_source),
+                    .with_clock_source(clock_source)
+                    .with_baudrate_tolerance(BaudrateTolerance::ErrorPercent(5)),
             )
-            .unwrap();
+            .unwrap_or_else(|e| panic!("{:?}: Failed to apply {:?}@{}", e, clock_source, baudrate));
             uart.write(&[byte_to_write]).unwrap();
             let mut byte = [0u8; 1];
             uart.read(&mut byte).unwrap();
@@ -483,7 +483,7 @@ mod async_tests {
         let signal = &*mk_static!(Signal<CriticalSectionRawMutex, ()>, Signal::new());
 
         let spawner = interrupt_executor.start(Priority::Priority3);
-        spawner.must_spawn(long_string_reader(rx, signal));
+        spawner.spawn(long_string_reader(rx, signal).unwrap());
 
         tx.write_str(LONG_TEST_STRING).unwrap();
 

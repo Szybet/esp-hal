@@ -2,6 +2,7 @@ use super::{
     Ext0WakeupSource,
     Ext1WakeupSource,
     TimerWakeupSource,
+    UlpWakeupSource,
     WakeSource,
     WakeTriggers,
     WakeupLevel,
@@ -9,7 +10,7 @@ use super::{
 use crate::{
     gpio::{RtcFunction, RtcPin},
     peripherals::{EXTMEM, LPWR, RTC_IO, SENS, SPI0, SPI1, SYSTEM},
-    rtc_cntl::{Rtc, RtcClock, sleep::RtcioWakeupSource},
+    rtc_cntl::{Rtc, sleep::RtcioWakeupSource},
     soc::regi2c,
 };
 
@@ -73,6 +74,26 @@ pub const RTC_MEM_POWERUP_CYCLES: u8 = OTHER_BLOCKS_POWERUP;
 /// RTC memory wait cycles.
 pub const RTC_MEM_WAIT_CYCLES: u16 = OTHER_BLOCKS_WAIT;
 
+impl WakeSource for UlpWakeupSource {
+    fn apply(
+        &self,
+        _rtc: &Rtc<'_>,
+        triggers: &mut WakeTriggers,
+        sleep_config: &mut RtcSleepConfig,
+    ) {
+        triggers.set_ulp(self.wake_on_interrupt);
+        triggers.set_ulp_riscv_trap(self.wake_on_trap);
+
+        if self.clear_interrupts_on_sleep {
+            self.clear_interrupts();
+        }
+
+        // This one needs to be false to keep the ULP timer and ULP GPIO happy!
+        // Possibly relevant issue: https://github.com/espressif/esp-idf/issues/10595
+        sleep_config.set_rtc_peri_pd_en(false);
+    }
+}
+
 impl WakeSource for TimerWakeupSource {
     fn apply(
         &self,
@@ -82,11 +103,8 @@ impl WakeSource for TimerWakeupSource {
     ) {
         triggers.set_timer(true);
         let rtc_cntl = LPWR::regs();
-        let clock_freq = RtcClock::slow_freq();
-        // TODO: maybe add sleep time adjustlemnt like idf
         // TODO: maybe add check to prevent overflow?
-        let clock_hz = clock_freq.as_hz() as u64;
-        let ticks = self.duration.as_micros() as u64 * clock_hz / 1_000_000u64;
+        let ticks = crate::clock::us_to_rtc_ticks(self.duration.as_micros() as u64);
         // "alarm" time in slow rtc ticks
         let now = rtc.time_since_boot_raw();
         let time_in_ticks = now + ticks;

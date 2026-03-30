@@ -271,7 +271,7 @@ mod read {
 mod write {
     use esp_hal::{
         Blocking,
-        gpio::interconnect::InputSignal,
+        gpio::{Flex, interconnect::InputSignal},
         pcnt::{Pcnt, channel::EdgeMode, unit::Unit},
         spi::{
             Mode,
@@ -321,7 +321,12 @@ mod write {
             }
         }
 
-        let (mosi_loopback, mosi) = unsafe { mosi.split() };
+        let mut mosi = Flex::new(mosi);
+
+        mosi.set_input_enable(true);
+        mosi.set_output_enable(true);
+
+        let mosi_loopback = mosi.peripheral_input();
 
         let spi = Spi::new(
             peripherals.SPI2,
@@ -684,19 +689,22 @@ mod spi_slave {
 
 #[embedded_test::tests(default_timeout = 3)]
 #[cfg(spi_master_supports_dma)]
-mod qspi {
-    #[cfg(pcnt_driver_supported)]
-    use esp_hal::pcnt::{Pcnt, channel::EdgeMode, unit::Unit};
+mod qspi_dma {
     use esp_hal::{
         Blocking,
         dma::{DmaRxBuf, DmaTxBuf},
         dma_buffers,
-        gpio::{AnyPin, Input, InputConfig, Level, Output, OutputConfig, Pull},
+        gpio::{AnyPin, Flex, Input, InputConfig, Level, Output, OutputConfig, Pull},
         spi::{
             Mode,
             master::{Address, Command, Config, DataMode, Spi, SpiDma},
         },
         time::Rate,
+    };
+    #[cfg(pcnt_driver_supported)]
+    use esp_hal::{
+        pcnt::{Pcnt, channel::EdgeMode, unit::Unit},
+        peripherals::PCNT,
     };
 
     cfg_if::cfg_if! {
@@ -715,12 +723,12 @@ mod qspi {
         }
     }
 
-    type SpiUnderTest = SpiDma<'static, Blocking>;
+    type SpiUnderTest<'a> = SpiDma<'a, Blocking>;
 
     struct Context {
         spi: Spi<'static, Blocking>,
         #[cfg(pcnt_driver_supported)]
-        pcnt: esp_hal::peripherals::PCNT<'static>,
+        pcnt: PCNT<'static>,
         dma_channel: DmaChannel0<'static>,
         gpios: [AnyPin<'static>; 3],
     }
@@ -767,6 +775,26 @@ mod qspi {
         transfer.wait()
     }
 
+    fn transfer_write_cpu<'s>(
+        mut spi: Spi<'s, Blocking>,
+        tx_buf: &[u8],
+        write: u8,
+        command_data_mode: DataMode,
+    ) -> Spi<'s, Blocking> {
+        spi.half_duplex_write(
+            DataMode::Quad,
+            Command::_8Bit(write as u16, command_data_mode),
+            Address::_24Bit(
+                write as u32 | (write as u32) << 8 | (write as u32) << 16,
+                DataMode::Quad,
+            ),
+            0,
+            tx_buf,
+        )
+        .unwrap();
+        spi
+    }
+
     fn execute_read(mut spi: SpiUnderTest, mut miso_mirror: Output<'static>, expected: u8) {
         const DMA_BUFFER_SIZE: usize = 4;
 
@@ -810,9 +838,9 @@ mod qspi {
 
     #[cfg(pcnt_driver_supported)]
     fn execute_write(
-        unit0: Unit<'static, 0>,
-        unit1: Unit<'static, 1>,
-        mut spi: SpiUnderTest,
+        unit0: Unit<'_, 0>,
+        unit1: Unit<'_, 1>,
+        mut spi: SpiUnderTest<'_>,
         write: u8,
         data_on_multiple_pins: bool,
     ) {
@@ -847,6 +875,55 @@ mod qspi {
             unit0.clear();
             unit1.clear();
             (spi, dma_tx_buf) = transfer_write(spi, dma_tx_buf, write, command_data_mode);
+            assert_eq!(unit0.value() + unit1.value(), 4);
+
+            if data_on_multiple_pins {
+                if command_data_mode == DataMode::SingleTwoDataLines {
+                    assert_eq!(unit0.value(), 1);
+                    assert_eq!(unit1.value(), 3);
+                } else {
+                    assert_eq!(unit0.value(), 0);
+                    assert_eq!(unit1.value(), 4);
+                }
+            }
+        }
+    }
+
+    #[cfg(pcnt_driver_supported)]
+    fn execute_write_with_cpu(
+        unit0: Unit<'_, 0>,
+        unit1: Unit<'_, 1>,
+        mut spi: Spi<'_, Blocking>,
+        write: u8,
+        data_on_multiple_pins: bool,
+    ) {
+        const BUFFER_SIZE: usize = 4;
+
+        let tx_buf = [write; BUFFER_SIZE];
+
+        for command_data_mode in COMMAND_DATA_MODES {
+            // Send command + address + data.
+            // Should read 8 high bits: 1 command bit, 3 address bits, 4 data bits
+            unit0.clear();
+            unit1.clear();
+            spi = transfer_write_cpu(spi, &tx_buf, write, command_data_mode);
+            assert_eq!(unit0.value() + unit1.value(), 8);
+
+            if data_on_multiple_pins {
+                if command_data_mode == DataMode::SingleTwoDataLines {
+                    assert_eq!(unit0.value(), 1);
+                    assert_eq!(unit1.value(), 7);
+                } else {
+                    assert_eq!(unit0.value(), 0);
+                    assert_eq!(unit1.value(), 8);
+                }
+            }
+
+            // Send command + address only
+            // Should read 4 bits high: 1 command bit, 3 address bits
+            unit0.clear();
+            unit1.clear();
+            spi = transfer_write_cpu(spi, &[], write, command_data_mode);
             assert_eq!(unit0.value() + unit1.value(), 4);
 
             if data_on_multiple_pins {
@@ -990,7 +1067,10 @@ mod qspi {
         let unit0 = pcnt.unit0;
         let unit1 = pcnt.unit1;
 
-        let (mosi_loopback, mosi) = unsafe { mosi.split() };
+        let mut mosi = Flex::new(mosi);
+        mosi.set_input_enable(true);
+        mosi.set_output_enable(true);
+        let mosi_loopback = mosi.peripheral_input();
 
         unit0.channel0.set_edge_signal(mosi_loopback);
         unit0
@@ -1009,30 +1089,15 @@ mod qspi {
         // up by a resistor if the command phase doesn't drive its line.
         let [gpio, _, mosi] = ctx.gpios;
 
-        let pcnt = Pcnt::new(ctx.pcnt);
-        let unit0 = pcnt.unit0;
-        let unit1 = pcnt.unit1;
-
-        let (mosi_loopback, mosi) = unsafe { mosi.split() };
-        let (gpio_loopback, gpio) = unsafe { gpio.split() };
-
-        unit0.channel0.set_edge_signal(mosi_loopback);
-        unit0
-            .channel0
-            .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
-
-        unit1.channel0.set_edge_signal(gpio_loopback);
-        unit1
-            .channel0
-            .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
-
-        let spi = ctx
-            .spi
-            .with_sio0(mosi)
-            .with_sio1(gpio)
-            .with_dma(ctx.dma_channel);
-
-        execute_write(unit0, unit1, spi, 0b0000_0010, true);
+        test_spi_writes_correctly_to_pin_x(
+            ctx.spi,
+            ctx.dma_channel,
+            ctx.pcnt,
+            gpio,
+            mosi,
+            |spi, sio_n| spi.with_sio1(sio_n),
+            0b0000_0010,
+        );
     }
 
     #[test]
@@ -1042,30 +1107,15 @@ mod qspi {
         // up by a resistor if the command phase doesn't drive its line.
         let [gpio, _, mosi] = ctx.gpios;
 
-        let pcnt = Pcnt::new(ctx.pcnt);
-        let unit0 = pcnt.unit0;
-        let unit1 = pcnt.unit1;
-
-        let (mosi_loopback, mosi) = unsafe { mosi.split() };
-        let (gpio_loopback, gpio) = unsafe { gpio.split() };
-
-        unit0.channel0.set_edge_signal(mosi_loopback);
-        unit0
-            .channel0
-            .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
-
-        unit1.channel0.set_edge_signal(gpio_loopback);
-        unit1
-            .channel0
-            .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
-
-        let spi = ctx
-            .spi
-            .with_sio0(mosi)
-            .with_sio2(gpio)
-            .with_dma(ctx.dma_channel);
-
-        execute_write(unit0, unit1, spi, 0b0000_0100, true);
+        test_spi_writes_correctly_to_pin_x(
+            ctx.spi,
+            ctx.dma_channel,
+            ctx.pcnt,
+            gpio,
+            mosi,
+            |spi, sio_n| spi.with_sio2(sio_n),
+            0b0000_0100,
+        );
     }
 
     #[test]
@@ -1075,29 +1125,168 @@ mod qspi {
         // up by a resistor if the command phase doesn't drive its line.
         let [gpio, _, mosi] = ctx.gpios;
 
-        let pcnt = Pcnt::new(ctx.pcnt);
+        test_spi_writes_correctly_to_pin_x(
+            ctx.spi,
+            ctx.dma_channel,
+            ctx.pcnt,
+            gpio,
+            mosi,
+            |spi, sio_n| spi.with_sio3(sio_n),
+            0b0000_1000,
+        );
+    }
+
+    #[cfg(pcnt_driver_supported)]
+    fn test_spi_writes_correctly_to_pin_x(
+        spi: Spi<'_, Blocking>,
+        dma_channel: DmaChannel0<'_>,
+        pcnt: PCNT<'_>,
+        gpio: AnyPin<'_>,
+        mosi: AnyPin<'_>,
+        set_pin: impl for<'a> FnOnce(Spi<'a, Blocking>, Flex<'a>) -> Spi<'a, Blocking>,
+        write: u8,
+    ) {
+        let pcnt = Pcnt::new(pcnt);
         let unit0 = pcnt.unit0;
         let unit1 = pcnt.unit1;
 
-        let (mosi_loopback, mosi) = unsafe { mosi.split() };
-        let (gpio_loopback, gpio) = unsafe { gpio.split() };
+        let mut mosi = Flex::new(mosi);
+        mosi.set_input_enable(true);
+        mosi.set_output_enable(true);
+        let mosi_loopback = mosi.peripheral_input();
+
+        let mut sio_n = Flex::new(gpio);
+        sio_n.set_input_enable(true);
+        sio_n.set_output_enable(true);
+        let sio3_loopback = sio_n.peripheral_input();
 
         unit0.channel0.set_edge_signal(mosi_loopback);
         unit0
             .channel0
             .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
 
-        unit1.channel0.set_edge_signal(gpio_loopback);
+        unit1.channel0.set_edge_signal(sio3_loopback);
         unit1
             .channel0
             .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
 
-        let spi = ctx
-            .spi
-            .with_sio0(mosi)
-            .with_sio3(gpio)
-            .with_dma(ctx.dma_channel);
+        let spi = set_pin(spi, sio_n).with_sio0(mosi).with_dma(dma_channel);
 
-        execute_write(unit0, unit1, spi, 0b0000_1000, true);
+        execute_write(unit0, unit1, spi, write, true);
+    }
+
+    #[test]
+    #[cfg(pcnt_driver_supported)]
+    fn test_spi_writes_correctly_to_pin_0_with_cpu(ctx: Context) {
+        // For PCNT-using tests we swap the pins around so that the PCNT is not pulled
+        // up by a resistor if the command phase doesn't drive its line.
+        let [_, _, mosi] = ctx.gpios;
+
+        let pcnt = Pcnt::new(ctx.pcnt);
+        let unit0 = pcnt.unit0;
+        let unit1 = pcnt.unit1;
+
+        let mut mosi = Flex::new(mosi);
+        mosi.set_input_enable(true);
+        mosi.set_output_enable(true);
+        let mosi_loopback = mosi.peripheral_input();
+
+        unit0.channel0.set_edge_signal(mosi_loopback);
+        unit0
+            .channel0
+            .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
+
+        let spi = ctx.spi.with_sio0(mosi);
+
+        execute_write_with_cpu(unit0, unit1, spi, 0b0000_0001, false);
+    }
+
+    #[test]
+    #[cfg(pcnt_driver_supported)]
+    fn test_spi_writes_correctly_to_pin_1_with_cpu(ctx: Context) {
+        // For PCNT-using tests we swap the pins around so that the PCNT is not pulled
+        // up by a resistor if the command phase doesn't drive its line.
+        let [gpio, _, mosi] = ctx.gpios;
+
+        test_spi_writes_correctly_to_pin_x_with_cpu(
+            ctx.spi,
+            ctx.pcnt,
+            gpio,
+            mosi,
+            |spi, sio_n| spi.with_sio1(sio_n),
+            0b0000_0010,
+        );
+    }
+
+    #[test]
+    #[cfg(pcnt_driver_supported)]
+    fn test_spi_writes_correctly_to_pin_2_with_cpu(ctx: Context) {
+        // For PCNT-using tests we swap the pins around so that the PCNT is not pulled
+        // up by a resistor if the command phase doesn't drive its line.
+        let [gpio, _, mosi] = ctx.gpios;
+
+        test_spi_writes_correctly_to_pin_x_with_cpu(
+            ctx.spi,
+            ctx.pcnt,
+            gpio,
+            mosi,
+            |spi, sio_n| spi.with_sio2(sio_n),
+            0b0000_0100,
+        );
+    }
+
+    #[test]
+    #[cfg(pcnt_driver_supported)]
+    fn test_spi_writes_correctly_to_pin_3_with_cpu(ctx: Context) {
+        // For PCNT-using tests we swap the pins around so that the PCNT is not pulled
+        // up by a resistor if the command phase doesn't drive its line.
+        let [gpio, _, mosi] = ctx.gpios;
+
+        test_spi_writes_correctly_to_pin_x_with_cpu(
+            ctx.spi,
+            ctx.pcnt,
+            gpio,
+            mosi,
+            |spi, sio_n| spi.with_sio3(sio_n),
+            0b0000_1000,
+        );
+    }
+
+    #[cfg(pcnt_driver_supported)]
+    fn test_spi_writes_correctly_to_pin_x_with_cpu(
+        spi: Spi<'_, Blocking>,
+        pcnt: PCNT<'_>,
+        gpio: AnyPin<'_>,
+        mosi: AnyPin<'_>,
+        set_pin: impl for<'a> FnOnce(Spi<'a, Blocking>, Flex<'a>) -> Spi<'a, Blocking>,
+        write: u8,
+    ) {
+        let pcnt = Pcnt::new(pcnt);
+        let unit0 = pcnt.unit0;
+        let unit1 = pcnt.unit1;
+
+        let mut mosi = Flex::new(mosi);
+        mosi.set_input_enable(true);
+        mosi.set_output_enable(true);
+        let mosi_loopback = mosi.peripheral_input();
+
+        let mut sio_n = Flex::new(gpio);
+        sio_n.set_input_enable(true);
+        sio_n.set_output_enable(true);
+        let sio3_loopback = sio_n.peripheral_input();
+
+        unit0.channel0.set_edge_signal(mosi_loopback);
+        unit0
+            .channel0
+            .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
+
+        unit1.channel0.set_edge_signal(sio3_loopback);
+        unit1
+            .channel0
+            .set_input_mode(EdgeMode::Hold, EdgeMode::Increment);
+
+        let spi = set_pin(spi, sio_n).with_sio0(mosi);
+
+        execute_write_with_cpu(unit0, unit1, spi, write, true);
     }
 }

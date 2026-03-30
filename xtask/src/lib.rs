@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use cargo::CargoAction;
 use esp_metadata::{Chip, Config, TokenStream};
+use log::info;
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use pretty_yaml::{config::FormatOptions, format_text};
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,28 @@ pub mod commands;
 pub mod documentation;
 pub mod firmware;
 pub mod git;
+
+// ---------------------------------------------------------------------------
+// MCP tool registration
+
+/// Registration record for a single MCP tool.
+///
+/// Populated by the `#[mcp_tool]` attribute macro via `inventory::submit!`.
+#[cfg(feature = "mcp")]
+pub struct McpToolRegistration {
+    /// Tool name exposed over MCP (snake_case, matches the subcommand).
+    pub name: &'static str,
+    /// Human-readable description shown in `tools/list`.
+    pub description: &'static str,
+    /// Returns the JSON Schema for the tool's input as a `serde_json::Value`.
+    pub input_schema_fn: fn() -> serde_json::Value,
+    /// Deserialises `json` into the tool's input type and executes the tool as
+    /// a subprocess, returning captured stdout/stderr.
+    pub execute_fn: fn(serde_json::Value) -> anyhow::Result<String>,
+}
+
+#[cfg(feature = "mcp")]
+inventory::collect!(McpToolRegistration);
 
 #[cfg(feature = "semver-checks")]
 pub mod semver_check;
@@ -880,7 +903,6 @@ fn format_package_path(
     let mut cargo_args = CargoArgsBuilder::default()
         .toolchain("nightly")
         .subcommand("fmt")
-        .arg("--all")
         .build();
 
     if check {
@@ -971,6 +993,7 @@ fn generate_metadata(
     let out_path = workspace.join("esp-metadata-generated").join("src");
 
     for chip in Chip::iter() {
+        info!("Generating metadata for {}", chip.pretty_name());
         let config = esp_metadata::Config::for_chip(&chip);
         call_for_file(
             &out_path.join(format!("_generated_{chip}.rs")),

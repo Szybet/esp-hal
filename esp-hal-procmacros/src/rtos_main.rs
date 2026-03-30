@@ -93,6 +93,7 @@ pub fn run(
 
     let result = quote! {
         #(#lint_attrs)*
+        #[doc(hidden)]
         pub(crate) mod __main {
             use super::*;
 
@@ -190,7 +191,7 @@ pub fn main_fn() -> TokenStream2 {
             let mut executor = ::esp_rtos::embassy::Executor::new();
             let executor = unsafe { __make_static(&mut executor) };
             executor.run(|spawner| {
-                spawner.must_spawn(__embassy_main(spawner));
+                spawner.spawn(__embassy_main(spawner).unwrap());
             })
         }
     }
@@ -213,6 +214,7 @@ mod tests {
         assert_eq!(
             result.to_string(),
             quote::quote! {
+                #[doc(hidden)]
                 pub (crate) mod __main {
                     use super::*;
                     #[doc(hidden)]
@@ -231,7 +233,7 @@ mod tests {
                         let mut executor = ::esp_rtos::embassy::Executor::new();
                         let executor = unsafe { __make_static (& mut executor) };
                         executor . run (| spawner | {
-                            spawner.must_spawn(__embassy_main (spawner));
+                            spawner.spawn(__embassy_main (spawner).unwrap());
                         })
                     }
                 }
@@ -368,6 +370,7 @@ mod tests {
         assert_eq!(
             result.to_string(),
             quote::quote! {
+                #[doc(hidden)]
                 pub (crate) mod __main {
                     use super::*;
                     #[doc(hidden)]
@@ -386,7 +389,7 @@ mod tests {
                         let mut executor = ::esp_rtos::embassy::Executor::new();
                         let executor = unsafe { __make_static (& mut executor) };
                         executor.run (| spawner | {
-                            spawner.must_spawn(__embassy_main (spawner));
+                            spawner.spawn(__embassy_main (spawner).unwrap());
                         })
                     }
                 }
@@ -408,6 +411,7 @@ mod tests {
         assert_eq!(
             result.to_string(),
             quote::quote! {
+                #[doc(hidden)]
                 pub (crate) mod __main {
                     use super::*;
                     #[doc(hidden)]
@@ -426,7 +430,7 @@ mod tests {
                         let mut executor = ::esp_rtos::embassy::Executor::new();
                         let executor = unsafe { __make_static (& mut executor) };
                         executor.run (| spawner | {
-                            spawner.must_spawn(__embassy_main (spawner));
+                            spawner.spawn(__embassy_main (spawner).unwrap());
                         })
                     }
                 }
@@ -455,6 +459,7 @@ mod tests {
                 #[allow(allowed)]
                 #[deny(denied)]
                 #[warn (warning)]
+                #[doc(hidden)]
                 pub (crate) mod __main {
                     use super::*;
                     #[doc(hidden)]
@@ -481,7 +486,7 @@ mod tests {
                         let mut executor = ::esp_rtos::embassy::Executor::new();
                         let executor = unsafe { __make_static (& mut executor) };
                         executor.run (| spawner | {
-                            spawner.must_spawn(__embassy_main (spawner));
+                            spawner.spawn(__embassy_main (spawner).unwrap());
                         })
                     }
                 }

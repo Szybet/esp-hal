@@ -1,7 +1,7 @@
 #![cfg_attr(docsrs, procmacros::doc_replace(
     "dma_channel" => {
-        cfg(any(esp32, esp32s2)) => "let dma_channel = peripherals.DMA_I2S0;",
-        cfg(not(any(esp32, esp32s2))) => "let dma_channel = peripherals.DMA_CH0;"
+        cfg(any(esp32, esp32s2)) => "DMA_I2S0",
+        cfg(not(any(esp32, esp32s2))) => "DMA_CH0"
     },
     "mclk" => {
         cfg(not(esp32)) => "let i2s = i2s.with_mclk(peripherals.GPIO0);",
@@ -77,12 +77,11 @@
 //! # {before_snippet}
 //! # use esp_hal::i2s::master::{I2s, Channels, DataFormat, Config};
 //! # use esp_hal::dma_buffers;
-//! # {dma_channel}
 //! let (mut rx_buffer, rx_descriptors, _, _) = dma_buffers!(4 * 4092, 0);
 //!
 //! let i2s = I2s::new(
 //!     peripherals.I2S0,
-//!     dma_channel,
+//!     peripherals.__dma_channel__,
 //!     Config::new_tdm_philips()
 //!         .with_sample_rate(Rate::from_hz(44100))
 //!         .with_data_format(DataFormat::Data16Channel16)
@@ -120,6 +119,7 @@ use crate::{
     Async,
     Blocking,
     DriverMode,
+    RegisterToggle,
     dma::{
         Channel,
         ChannelRx,
@@ -1674,17 +1674,12 @@ mod private {
         }
 
         fn reset_tx(&self) {
-            self.regs().conf().modify(|_, w| {
-                w.tx_reset().set_bit();
-                w.tx_fifo_reset().set_bit()
-            });
-            self.regs().conf().modify(|_, w| {
-                w.tx_reset().clear_bit();
-                w.tx_fifo_reset().clear_bit()
+            self.regs().conf().toggle(|w, bit| {
+                w.tx_reset().bit(bit);
+                w.tx_fifo_reset().bit(bit)
             });
 
-            self.regs().lc_conf().modify(|_, w| w.out_rst().set_bit());
-            self.regs().lc_conf().modify(|_, w| w.out_rst().clear_bit());
+            self.regs().lc_conf().toggle(|w, bit| w.out_rst().bit(bit));
 
             self.regs().int_clr().write(|w| {
                 w.out_done().clear_bit_by_one();
@@ -1713,17 +1708,12 @@ mod private {
         }
 
         fn reset_rx(&self) {
-            self.regs().conf().modify(|_, w| {
-                w.rx_reset().set_bit();
-                w.rx_fifo_reset().set_bit()
-            });
-            self.regs().conf().modify(|_, w| {
-                w.rx_reset().clear_bit();
-                w.rx_fifo_reset().clear_bit()
+            self.regs().conf().toggle(|w, bit| {
+                w.rx_reset().bit(bit);
+                w.rx_fifo_reset().bit(bit)
             });
 
-            self.regs().lc_conf().modify(|_, w| w.in_rst().set_bit());
-            self.regs().lc_conf().modify(|_, w| w.in_rst().clear_bit());
+            self.regs().lc_conf().toggle(|w, bit| w.in_rst().bit(bit));
 
             self.regs().int_clr().write(|w| {
                 w.in_done().clear_bit_by_one();
@@ -2089,23 +2079,16 @@ mod private {
         fn update(&self) {
             self.regs()
                 .tx_conf()
-                .modify(|_, w| w.tx_update().clear_bit());
-            self.regs().tx_conf().modify(|_, w| w.tx_update().set_bit());
-
+                .toggle(|w, bit| w.tx_update().bit(!bit));
             self.regs()
                 .rx_conf()
-                .modify(|_, w| w.rx_update().clear_bit());
-            self.regs().rx_conf().modify(|_, w| w.rx_update().set_bit());
+                .toggle(|w, bit| w.rx_update().bit(!bit));
         }
 
         fn reset_tx(&self) {
-            self.regs().tx_conf().modify(|_, w| {
-                w.tx_reset().set_bit();
-                w.tx_fifo_reset().set_bit()
-            });
-            self.regs().tx_conf().modify(|_, w| {
-                w.tx_reset().clear_bit();
-                w.tx_fifo_reset().clear_bit()
+            self.regs().tx_conf().toggle(|w, bit| {
+                w.tx_reset().bit(bit);
+                w.tx_fifo_reset().bit(bit)
             });
 
             self.regs().int_clr().write(|w| {
@@ -2139,13 +2122,9 @@ mod private {
                 .rx_conf()
                 .modify(|_, w| w.rx_start().clear_bit());
 
-            self.regs().rx_conf().modify(|_, w| {
-                w.rx_reset().set_bit();
-                w.rx_fifo_reset().set_bit()
-            });
-            self.regs().rx_conf().modify(|_, w| {
-                w.rx_reset().clear_bit();
-                w.rx_fifo_reset().clear_bit()
+            self.regs().rx_conf().toggle(|w, bit| {
+                w.rx_reset().bit(bit);
+                w.rx_fifo_reset().bit(bit)
             });
 
             self.regs().int_clr().write(|w| {
@@ -2360,12 +2339,12 @@ mod private {
                 AnyI2sInner::I2s1(i2s) => i2s,
             } {
                 fn bind_peri_interrupt(&self, handler: InterruptHandler);
-                fn disable_peri_interrupt(&self);
+                fn disable_peri_interrupt_on_all_cores(&self);
             }
         }
 
         pub(super) fn set_interrupt_handler(&self, handler: InterruptHandler) {
-            self.disable_peri_interrupt();
+            self.disable_peri_interrupt_on_all_cores();
             self.bind_peri_interrupt(handler);
         }
     }

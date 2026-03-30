@@ -73,7 +73,7 @@ critical_section::with(|cs| RWDT.borrow_ref_mut(cs).replace(rtc.rwdt));
 static RWDT: Mutex<RefCell<Option<Rwdt>>> = Mutex::new(RefCell::new(None));
 
 // Handle the corresponding interrupt
-#[handler]
+#[esp_hal::handler]
 fn interrupt_handler() {
     critical_section::with(|cs| {
         println!("RWDT Interrupt");
@@ -94,7 +94,6 @@ fn interrupt_handler() {
 ### Get time in ms from the RTC Timer
 ```rust, no_run
 # {before_snippet}
-# use core::time::Duration;
 # use esp_hal::{delay::Delay, rtc_cntl::Rtc};
 
 let rtc = Rtc::new(peripherals.LPWR);
@@ -114,8 +113,6 @@ loop {
 "#
 )]
 pub use self::rtc::SocResetReason;
-#[cfg_attr(not(lp_timer_driver_supported), expect(unused))]
-use crate::clock::RtcClock;
 #[cfg(sleep_driver_supported)]
 use crate::rtc_cntl::sleep::{RtcSleepConfig, WakeSource, WakeTriggers};
 #[cfg_attr(not(lp_timer_driver_supported), expect(unused))]
@@ -137,15 +134,16 @@ pub mod sleep;
 #[cfg_attr(esp32c3, path = "rtc/esp32c3.rs")]
 #[cfg_attr(esp32c5, path = "rtc/esp32c5.rs")]
 #[cfg_attr(esp32c6, path = "rtc/esp32c6.rs")]
+#[cfg_attr(esp32c61, path = "rtc/esp32c61.rs")]
 #[cfg_attr(esp32h2, path = "rtc/esp32h2.rs")]
 #[cfg_attr(esp32s2, path = "rtc/esp32s2.rs")]
 #[cfg_attr(esp32s3, path = "rtc/esp32s3.rs")]
 pub(crate) mod rtc;
 
 cfg_if::cfg_if! {
-    if #[cfg(any(esp32c6, esp32h2, esp32c5))] {
+    if #[cfg(soc_has_lp_wdt)] {
         use crate::peripherals::LP_WDT;
-        #[cfg(not(esp32c5))]
+        #[cfg(lp_timer_driver_supported)]
         use crate::peripherals::LP_TIMER;
         use crate::peripherals::LP_AON;
     } else {
@@ -260,9 +258,7 @@ impl<'d> Rtc<'d> {
     /// reset the RTC timer.
     #[cfg(lp_timer_driver_supported)]
     pub fn time_since_power_up(&self) -> Duration {
-        Duration::from_micros(
-            self.time_since_boot_raw() * 1_000_000 / RtcClock::slow_freq().as_hz() as u64,
-        )
+        Duration::from_micros(crate::clock::rtc_ticks_to_us(self.time_since_boot_raw()))
     }
 
     /// Read the current value of the boot time registers in microseconds.
@@ -555,15 +551,7 @@ impl Rwdt {
     /// Feed the watchdog timer.
     pub fn feed(&mut self) {
         self.set_write_protection(false);
-        LP_WDT::regs().wdtfeed().write(|w| {
-            cfg_if::cfg_if! {
-                if #[cfg(esp32c5)] {
-                    w.rtc_wdt_feed().set_bit()
-                } else {
-                    w.wdt_feed().set_bit()
-                }
-            }
-        });
+        LP_WDT::regs().wdtfeed().write(|w| w.wdt_feed().set_bit());
         self.set_write_protection(true);
     }
 
@@ -608,11 +596,11 @@ impl Rwdt {
         self.set_write_protection(true);
     }
 
-    /// Configure timeout value in ms for the selected stage.
+    /// Configure timeout value for the selected stage.
     pub fn set_timeout(&mut self, stage: RwdtStage, timeout: Duration) {
         let rtc_cntl = LP_WDT::regs();
 
-        let timeout_raw = (timeout.as_millis() * (crate::clock::cycles_to_1ms() as u64)) as u32;
+        let timeout_raw = crate::clock::us_to_rtc_ticks(timeout.as_micros()) as u32;
         self.set_write_protection(false);
 
         let config_reg = match stage {
@@ -623,7 +611,7 @@ impl Rwdt {
         };
 
         #[cfg(not(esp32))]
-        let timeout_raw = timeout_raw >> (1 + crate::efuse::Efuse::rwdt_multiplier());
+        let timeout_raw = timeout_raw >> (1 + crate::efuse::rwdt_multiplier());
 
         config_reg.modify(|_, w| unsafe { w.hold().bits(timeout_raw) });
 
@@ -703,7 +691,7 @@ pub fn wakeup_cause() -> SleepSource {
     cfg_if::cfg_if! {
         if #[cfg(esp32)] {
             let wakeup_cause_bits = LPWR::regs().wakeup_state().read().wakeup_cause().bits() as u32;
-        } else if #[cfg(any(esp32c5, esp32c6, esp32h2))] {
+        } else if #[cfg(soc_has_intpri)] {
             let wakeup_cause_bits = crate::peripherals::PMU::regs()
                 .slp_wakeup_status0()
                 .read()

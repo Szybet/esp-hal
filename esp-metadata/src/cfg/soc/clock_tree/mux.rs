@@ -5,29 +5,29 @@ use convert_case::{Boundary, Case, Casing, pattern};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use serde::Deserialize;
+use somni_parser::ast;
 
-use super::Expression;
 use crate::cfg::{
+    ClockTreeNodeInstance,
     clock_tree::{ClockTreeNodeType, ConfiguresExpression, ValidationContext},
     soc::ProcessedClockData,
 };
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Multiplexer {
     /// The unique name of the clock tree item.
-    name: String,
+    pub name: String,
 
     #[serde(default)]
     always_on: bool,
 
     // reject: Option<RejectExpression>,
-    #[serde(default)]
-    pub default: Option<String>,
     pub variants: Vec<MultiplexerVariant>,
 }
 
 impl ClockTreeNodeType for Multiplexer {
-    fn name_str<'a>(&'a self) -> &'a String {
+    fn name(&self) -> &str {
         &self.name
     }
 
@@ -35,23 +35,39 @@ impl ClockTreeNodeType for Multiplexer {
         self.always_on
     }
 
-    fn input_clocks(&self) -> Vec<String> {
-        self.upstream_clocks().map(ToString::to_string).collect()
+    fn input_clocks(
+        &self,
+        instance: &ClockTreeNodeInstance,
+        tree: &ProcessedClockData,
+    ) -> Vec<String> {
+        self.upstream_clocks()
+            .map(|c| instance.resolve_node(tree, c).name_str().clone())
+            .collect()
     }
 
-    fn validate_source_data(&self, ctx: &ValidationContext<'_>) -> Result<()> {
-        let mut default_exists = false;
+    fn validate_source_data(
+        &self,
+        instance: &ClockTreeNodeInstance,
+        ctx: &ValidationContext<'_>,
+    ) -> Result<()> {
+        let mut default = None;
         for variant in &self.variants {
-            default_exists |= Some(variant.name.as_str()) == self.default.as_deref();
-            variant.validate_source_data(ctx).with_context(|| {
-                format!("Multiplexer option {} has incorrect data", variant.name)
-            })?;
+            if variant.default {
+                if default.is_some() {
+                    anyhow::bail!("Multiplexer {} has multiple default options", self.name);
+                }
+                default = Some(variant.name.as_str());
+            }
+            variant
+                .validate_source_data(instance, ctx)
+                .with_context(|| {
+                    format!(
+                        "Multiplexer option {}/{} has incorrect data",
+                        self.name, variant.name
+                    )
+                })?;
         }
-        anyhow::ensure!(
-            self.default.is_none() || default_exists,
-            "Multiplexer default option {} not found",
-            self.default.as_ref().unwrap()
-        );
+
         Ok(())
     }
 
@@ -59,56 +75,130 @@ impl ClockTreeNodeType for Multiplexer {
         self.upstream_clocks().count() > 1
     }
 
-    fn apply_configuration(&self, expr: &Expression, _tree: &ProcessedClockData) -> TokenStream {
-        let config_function = self.config_apply_function_name();
+    fn validate_configures_expr(
+        &self,
+        instance: &ClockTreeNodeInstance,
+        expr: &ConfiguresExpression,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            expr.effect().property.is_none(),
+            "Multiplexer config expression for `{}` must not have a property",
+            instance.name_str()
+        );
+        let ast::RightHandExpression::Variable { variable } = &expr.effect().value else {
+            anyhow::bail!(
+                "Multiplexer config expression for `{}` must be a name",
+                instance.name_str()
+            );
+        };
 
-        let enum_name = self.config_type_name().unwrap();
+        let clock_name = instance.name_str();
 
-        let configured_name = expr.as_name().unwrap();
+        let name = expr.name(*variable);
+        if !self.variant_names().any(|v| v == name) {
+            anyhow::bail!("Multiplexer `{clock_name}` does not have variant `{name}`");
+        }
+
+        Ok(())
+    }
+
+    fn apply_configuration(
+        &self,
+        instance: &ClockTreeNodeInstance,
+        expr: &ConfiguresExpression,
+        _tree: &ProcessedClockData,
+    ) -> TokenStream {
+        let ast::RightHandExpression::Variable { variable } = &expr.effect().value else {
+            unreachable!()
+        };
+
+        let config_function = instance.config_apply_function_name();
+        let enum_name = instance.config_type_name();
+
+        let configured_name = expr.name(*variable);
         let variant = self
             .variants
             .iter()
-            .find(|v| v.name == configured_name)
-            .unwrap_or_else(|| panic!("Multiplexer option {configured_name} not found"));
-
-        let variant = variant.config_enum_variant_name();
+            .find(|variant| variant.name == configured_name)
+            .unwrap()
+            .config_enum_variant_name();
 
         quote! {
             #config_function(clocks, #enum_name::#variant);
         }
     }
 
-    fn config_apply_function(&self, tree: &ProcessedClockData) -> TokenStream {
-        self.impl_config_apply_function(self, tree)
+    fn config_apply_function(
+        &self,
+        instance: &ClockTreeNodeInstance,
+        tree: &ProcessedClockData,
+    ) -> TokenStream {
+        self.impl_config_apply_function(instance, tree)
     }
 
-    fn config_apply_impl_function(&self, _tree: &ProcessedClockData) -> TokenStream {
-        let ty_name = self.config_type_name();
-        let apply_fn_name = self.config_apply_function_name();
-        let hal_impl = format_ident!("{}_impl", apply_fn_name);
+    fn node_frequency_impl(
+        &self,
+        instance: &ClockTreeNodeInstance,
+        tree: &ProcessedClockData,
+    ) -> TokenStream {
+        let ty_name = instance.config_type_name();
+        let variants = self
+            .variants
+            .iter()
+            .map(|variant| {
+                let name = variant.config_enum_variant_name();
 
-        quote! {
-            fn #hal_impl(_clocks: &mut ClockTree, _old_selector: Option<#ty_name>, _new_selector: #ty_name) {
-                todo!()
+                quote! { #ty_name::#name }
+            })
+            .collect::<Vec<_>>();
+
+        let variant_frequencies = self
+            .variants
+            .iter()
+            .map(|variant| {
+                let upstream_node = instance.resolve_node(tree, &variant.outputs);
+                let frequency_fn = upstream_node.frequency_function_name();
+                let receiver = upstream_node.properties.receiver();
+
+                quote! { #(#receiver.)* #frequency_fn(clocks) }
+            })
+            .collect::<Vec<_>>();
+
+        if variant_frequencies.len() > 1 {
+            quote! {
+                match config {
+                    #(#variants => #variant_frequencies,)*
+                }
+            }
+        } else {
+            let variant_frequency = variant_frequencies.first().unwrap();
+            quote! {
+                #variant_frequency
             }
         }
     }
 
-    fn node_frequency_impl(&self, tree: &ProcessedClockData) -> TokenStream {
-        self.node_frequency_impl2(self, tree)
-    }
+    fn config_type(&self, instance: &ClockTreeNodeInstance) -> TokenStream {
+        let clock_name = instance.name_str();
+        let ty_name = instance.config_type_name();
 
-    fn config_docline(&self) -> Option<String> {
-        let clock_name = self.name.as_str();
-        Some(format!(
-            " The list of clock signals that the `{clock_name}` multiplexer can output."
-        ))
-    }
+        let derive_default = if self.variants.iter().any(|v| v.default) {
+            quote! { Default, }
+        } else {
+            quote! {}
+        };
+        let variants = self.variants.iter().map(|v| v.config_enum_variant());
 
-    fn config_type(&self) -> Option<TokenStream> {
-        let ty_name = self.config_type_name()?;
-
-        Some(self.impl_config_type(ty_name))
+        let docline =
+            format!("The list of clock signals that the `{clock_name}` multiplexer can output.");
+        quote! {
+            #[doc = #docline]
+            #[derive(Debug, #derive_default Clone, Copy, PartialEq, Eq, Hash)]
+            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+            pub enum #ty_name {
+                #(#variants)*
+            }
+        }
     }
 
     fn affected_nodes<'s>(&'s self) -> Vec<&'s str> {
@@ -117,75 +207,53 @@ impl ClockTreeNodeType for Multiplexer {
 
     fn request_direct_dependencies(
         &self,
-        node: &dyn ClockTreeNodeType,
+        instance: &ClockTreeNodeInstance,
         tree: &ProcessedClockData,
     ) -> TokenStream {
-        let state_field = tree.properties(node).field_name();
-        self.impl_request_upstream(node, tree, quote! { unwrap!(clocks.#state_field) })
+        let config_field = instance.properties.indexed_config_accessor();
+        self.impl_request_upstream(instance, tree, quote! { unwrap!(#config_field) })
     }
 
     fn release_direct_dependencies(
         &self,
-        node: &dyn ClockTreeNodeType,
+        instance: &ClockTreeNodeInstance,
         tree: &ProcessedClockData,
     ) -> TokenStream {
-        let state_field = tree.properties(node).field_name();
-        self.impl_release_upstream(node, tree, quote! { unwrap!(clocks.#state_field) })
+        let config_field = instance.properties.indexed_config_accessor();
+        self.impl_release_upstream(instance, tree, quote! { unwrap!(#config_field) })
     }
 }
 
 impl Multiplexer {
-    pub fn upstream_clocks(&self) -> impl Iterator<Item = &str> {
+    fn upstream_clocks(&self) -> impl Iterator<Item = &str> {
         self.variants.iter().map(|v| v.outputs.as_str())
     }
 
-    pub fn variant_names(&self) -> impl Iterator<Item = &str> {
+    fn variant_names(&self) -> impl Iterator<Item = &str> {
         self.variants.iter().map(|v| v.name.as_str())
     }
 
     pub fn configures(&self) -> impl Iterator<Item = &str> {
         self.variants
             .iter()
-            .flat_map(|v| v.configures.iter().map(|c| c.target.as_str()))
-    }
-
-    pub fn impl_config_type(&self, ty_name: Ident) -> TokenStream {
-        let variants = self.variants.iter().map(|v| {
-            let variant = v.config_enum_variant();
-            if Some(v.name.as_str()) == self.default.as_deref() {
-                quote! {
-                    #[default]
-                    #variant
-                }
-            } else {
-                variant
-            }
-        });
-
-        let default = self.default.as_ref().map(|_| quote! { Default, });
-
-        quote! {
-            #[derive(Debug, #default Clone, Copy, PartialEq, Eq, Hash)]
-            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-            pub enum #ty_name {
-                #(#variants)*
-            }
-        }
+            .flat_map(|v| v.configures.iter().map(|c| c.effect().node.as_str()))
     }
 
     pub fn impl_config_apply_function(
         &self,
-        node: &dyn ClockTreeNodeType,
+        instance: &ClockTreeNodeInstance,
         tree: &ProcessedClockData,
     ) -> TokenStream {
-        let ty_name = node.config_type_name();
-        let apply_fn_name = node.config_apply_function_name();
+        let ty_name = instance.config_type_name();
+        let apply_fn_name = instance.config_apply_function_name();
         let hal_impl = format_ident!("{}_impl", apply_fn_name);
-        let state = tree.properties(node).field_name();
-        let refcount_field = tree.properties(node).refcount_field_name();
+        let config_field = instance.properties.indexed_config_accessor();
+        let receiver = instance.properties.receiver();
 
-        let request_upstream = self.impl_request_upstream(node, tree, quote! { new_selector });
-        let release_upstream = self.impl_release_upstream(node, tree, quote! { old_selector });
+        let hal_impl = quote! { #(#receiver.)*#hal_impl };
+
+        let request_upstream = self.impl_request_upstream(instance, tree, quote! { new_selector });
+        let release_upstream = self.impl_release_upstream(instance, tree, quote! { old_selector });
 
         let cfgs = self
             .variants
@@ -198,8 +266,8 @@ impl Multiplexer {
                 let mut variant_configures = quote! {};
 
                 for cfg_expr in variant.configures.iter() {
-                    let affected_node = tree.node(&cfg_expr.target);
-                    let config_expr = affected_node.apply_configuration(&cfg_expr.value, tree);
+                    let affected_node = instance.resolve_node(tree, &cfg_expr.effect().node);
+                    let config_expr = affected_node.apply_configuration(&cfg_expr, tree);
 
                     variant_configures = quote! {
                         #variant_configures
@@ -234,9 +302,9 @@ impl Multiplexer {
                 #release_upstream
             }
         };
-        let apply_impl = if refcount_field.is_some() {
+        let apply_impl = if let Some(refcount_accessor) = instance.properties.refcount_accessor() {
             quote! {
-                if clocks.#refcount_field > 0 {
+                if #refcount_accessor > 0 {
                     #apply_and_switch_input
                 } else {
                     #hal_impl(clocks, old_selector, new_selector);
@@ -247,8 +315,8 @@ impl Multiplexer {
         };
 
         quote! {
-            pub fn #apply_fn_name(clocks: &mut ClockTree, new_selector: #ty_name) {
-                let old_selector = clocks.#state.replace(new_selector);
+            pub fn #apply_fn_name(#(#receiver,)* clocks: &mut ClockTree, new_selector: #ty_name) {
+                let old_selector = #config_field.replace(new_selector);
 
                 #configures
 
@@ -257,61 +325,22 @@ impl Multiplexer {
         }
     }
 
-    // Allows reusing the same code for peripheral_source nodes
-    pub fn node_frequency_impl2(
-        &self,
-        node: &dyn ClockTreeNodeType,
-        tree: &ProcessedClockData,
-    ) -> TokenStream {
-        let ty_name = node.config_type_name();
-        let state = tree.properties(node).field_name();
-        let variants = self
-            .variants
-            .iter()
-            .map(|variant| {
-                let name = variant.config_enum_variant_name();
-
-                quote! { #ty_name::#name }
-            })
-            .collect::<Vec<_>>();
-
-        let variant_frequencies = self
-            .variants
-            .iter()
-            .map(|variant| {
-                let frequency_fn = tree.node(&variant.outputs).frequency_function_name();
-
-                quote! { #frequency_fn(clocks) }
-            })
-            .collect::<Vec<_>>();
-
-        if variant_frequencies.len() > 1 {
-            quote! {
-                match unwrap!(clocks.#state) {
-                    #(#variants => #variant_frequencies,)*
-                }
-            }
-        } else {
-            let variant_frequency = variant_frequencies.first().unwrap();
-            quote! {
-                #variant_frequency
-            }
-        }
-    }
-
     fn impl_request_upstream(
         &self,
-        node: &dyn ClockTreeNodeType,
+        instance: &ClockTreeNodeInstance,
         tree: &ProcessedClockData,
         config_var: TokenStream,
     ) -> TokenStream {
         if self.variants.len() > 1 {
-            let ty_name = node.config_type_name().unwrap();
+            let ty_name = instance.config_type_name();
             let request_upstream_branches = self.variants.iter().map(|variant| {
                 let match_arm = variant.config_enum_variant_name();
-                let function = tree.node(&variant.outputs).request_fn_name();
+
+                let upstream_node = instance.resolve_node(tree, &variant.outputs);
+                let receiver = upstream_node.properties.receiver();
+                let func = upstream_node.request_fn_name();
                 quote! {
-                    #ty_name::#match_arm => #function(clocks)
+                    #ty_name::#match_arm => #(#receiver.)*#func(clocks)
                 }
             });
 
@@ -324,7 +353,12 @@ impl Multiplexer {
             let function = self
                 .variants
                 .first()
-                .map(|variant| tree.node(&variant.outputs).request_fn_name())
+                .map(|variant| {
+                    let upstream_node = instance.resolve_node(tree, &variant.outputs);
+                    let receiver = upstream_node.properties.receiver();
+                    let func = upstream_node.request_fn_name();
+                    quote! { #(#receiver.)*#func }
+                })
                 .into_iter();
 
             quote! {
@@ -335,17 +369,19 @@ impl Multiplexer {
 
     fn impl_release_upstream(
         &self,
-        node: &dyn ClockTreeNodeType,
+        instance: &ClockTreeNodeInstance,
         tree: &ProcessedClockData,
         config_var: TokenStream,
     ) -> TokenStream {
         if self.variants.len() > 1 {
-            let ty_name = node.config_type_name().unwrap();
+            let ty_name = instance.config_type_name();
             let release_upstream_branches = self.variants.iter().map(|variant| {
                 let match_arm = variant.config_enum_variant_name();
-                let function = tree.node(&variant.outputs).release_fn_name();
+                let upstream_node = instance.resolve_node(tree, &variant.outputs);
+                let receiver = upstream_node.properties.receiver();
+                let func = upstream_node.release_fn_name();
                 quote! {
-                    #ty_name::#match_arm => #function(clocks)
+                    #ty_name::#match_arm => #(#receiver.)*#func(clocks)
                 }
             });
             quote! {
@@ -357,7 +393,12 @@ impl Multiplexer {
             let function = self
                 .variants
                 .first()
-                .map(|variant| tree.node(&variant.outputs).release_fn_name())
+                .map(|variant| {
+                    let upstream_node = instance.resolve_node(tree, &variant.outputs);
+                    let receiver = upstream_node.properties.receiver();
+                    let func = upstream_node.release_fn_name();
+                    quote! { #(#receiver.)*#func }
+                })
                 .into_iter();
 
             quote! {
@@ -369,10 +410,12 @@ impl Multiplexer {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MultiplexerVariant {
-    name: String,
+    pub name: String,
     pub outputs: String,
     #[serde(default, deserialize_with = "super::list_from_str")]
-    configures: Vec<ConfiguresExpression>,
+    pub configures: Vec<ConfiguresExpression>,
+    #[serde(default)]
+    pub default: bool,
 }
 impl MultiplexerVariant {
     pub fn config_enum_variant_name(&self) -> Ident {
@@ -392,22 +435,39 @@ impl MultiplexerVariant {
         let docline = format!(" Selects `{}`.", self.outputs);
         let name = self.config_enum_variant_name();
 
+        let default = if self.default {
+            quote! {
+                #[default]
+            }
+        } else {
+            quote! {}
+        };
+
         quote! {
+            #default
             #[doc = #docline]
             #name,
         }
     }
 
-    fn validate_source_data(&self, ctx: &ValidationContext<'_>) -> Result<()> {
+    pub fn validate_source_data(
+        &self,
+        instance: &ClockTreeNodeInstance,
+        ctx: &ValidationContext<'_>,
+    ) -> Result<()> {
         anyhow::ensure!(
-            ctx.has_clock(&self.outputs),
+            ctx.has_clock(instance, &self.outputs),
             "Clock source {} not found",
             self.outputs
         );
 
         for (index, config) in self.configures.iter().enumerate() {
-            config
-                .validate_source_data(ctx)
+            let Some(clock) = ctx.clock(instance, &config.effect().node) else {
+                anyhow::bail!("Clock source {} not found", config.effect().node);
+            };
+
+            clock
+                .validate_configures_expr(config)
                 .with_context(|| format!("Incorrect `configures` expression at index {index}"))?;
         }
 

@@ -2,7 +2,7 @@
 //!
 //! Set SSID and PASSWORD env variable before running this example.
 
-//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32s2 esp32s3
+//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32s2 esp32s3
 //% FEATURES: esp-radio esp-radio/wifi esp-radio/csi esp-radio/unstable esp-hal/unstable
 
 #![no_std]
@@ -23,6 +23,7 @@ use esp_hal::{
 use esp_println::println;
 use esp_radio::wifi::{
     Config,
+    ControllerConfig,
     Interface,
     WifiController,
     csi::CsiConfig,
@@ -30,7 +31,6 @@ use esp_radio::wifi::{
     scan::ScanConfig,
     sta::StationConfig,
 };
-
 esp_bootloader_esp_idf::esp_app_desc!();
 
 // When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
@@ -59,8 +59,19 @@ async fn main(spawner: Spawner) -> ! {
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
-    let (mut controller, interfaces) =
-        esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
+    let station_config = Config::Station(
+        StationConfig::default()
+            .with_ssid(SSID)
+            .with_password(PASSWORD.into()),
+    );
+
+    println!("Starting wifi");
+    let (mut controller, interfaces) = esp_radio::wifi::new(
+        peripherals.WIFI,
+        ControllerConfig::default().with_initial_config(station_config),
+    )
+    .unwrap();
+    println!("Wifi configured and started!");
 
     // enable some "interesting" events to be received in the connection task
     esp_radio::wifi::event::enable_wifi_events(
@@ -84,15 +95,6 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
 
-    let station_config = Config::Station(
-        StationConfig::default()
-            .with_ssid(SSID)
-            .with_password(PASSWORD.into()),
-    );
-    println!("Starting wifi");
-    controller.set_config(&station_config).unwrap();
-    println!("Wifi started!");
-
     let csi = CsiConfig::default();
     controller
         .set_csi(csi, |data: esp_radio::wifi::csi::WifiCsiInfo| {
@@ -107,8 +109,8 @@ async fn main(spawner: Spawner) -> ! {
         println!("{:?}", ap);
     }
 
-    spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task(runner)).ok();
+    spawner.spawn(connection(controller).unwrap());
+    spawner.spawn(net_task(runner).unwrap());
 
     stack.wait_config_up().await;
 

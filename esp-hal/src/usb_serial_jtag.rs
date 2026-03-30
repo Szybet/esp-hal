@@ -95,7 +95,7 @@
 //! static USB_SERIAL: Mutex<RefCell<Option<UsbSerialJtag<'static, esp_hal::Blocking>>>> =
 //!     Mutex::new(RefCell::new(None));
 //!
-//! #[handler]
+//! #[esp_hal::handler]
 //! fn usb_device() {
 //!     critical_section::with(|cs| {
 //!         let mut usb_serial = USB_SERIAL.borrow_ref_mut(cs);
@@ -130,7 +130,7 @@ use crate::{
     asynch::AtomicWaker,
     pac::usb_device::RegisterBlock,
     peripherals::USB_DEVICE,
-    system::PeripheralClockControl,
+    system::{Peripheral, PeripheralClockControl},
 };
 
 /// Custom USB serial error type
@@ -351,18 +351,24 @@ where
     fn new_inner(usb_device: USB_DEVICE<'d>) -> Self {
         // Do NOT reset the peripheral. Doing so will result in a broken USB JTAG
         // connection.
-        PeripheralClockControl::enable(crate::system::Peripheral::UsbDevice);
+        if PeripheralClockControl::enable(Peripheral::UsbDevice) {
+            PeripheralClockControl::reset(Peripheral::UsbDevice);
+        } else {
+            // Refcount was more than 0. Decrement to avoid overflow because we don't handle
+            // dropping the driver.
+            PeripheralClockControl::disable(Peripheral::UsbDevice);
+        }
 
         usb_device.disable_tx_interrupts();
         usb_device.disable_rx_interrupts();
 
         #[cfg(any(esp32c3, esp32s3))]
         {
-            use crate::efuse::{Efuse, USB_EXCHG_PINS};
+            use crate::efuse::USB_EXCHG_PINS;
 
             // On the esp32c3, and esp32s3 the USB_EXCHG_PINS efuse is bugged and
             // doesn't swap the pullups too, this works around that.
-            if Efuse::read_bit(USB_EXCHG_PINS) {
+            if crate::efuse::read_bit(USB_EXCHG_PINS) {
                 usb_device.register_block().conf0().modify(|_, w| {
                     w.pad_pull_override().set_bit();
                     w.dm_pullup().clear_bit();
@@ -435,7 +441,7 @@ where
     /// handlers.
     #[instability::unstable]
     pub fn set_interrupt_handler(&mut self, handler: crate::interrupt::InterruptHandler) {
-        self.rx.peripheral.disable_peri_interrupt();
+        self.rx.peripheral.disable_peri_interrupt_on_all_cores();
         self.rx.peripheral.bind_peri_interrupt(handler);
     }
 }
@@ -787,7 +793,7 @@ impl<'d> UsbSerialJtag<'d, Async> {
     /// Reconfigure the USB Serial JTAG peripheral to operate in blocking
     /// mode.
     pub fn into_blocking(self) -> UsbSerialJtag<'d, Blocking> {
-        self.rx.peripheral.disable_peri_interrupt();
+        self.rx.peripheral.disable_peri_interrupt_on_all_cores();
         UsbSerialJtag {
             rx: UsbSerialJtagRx {
                 peripheral: self.rx.peripheral,

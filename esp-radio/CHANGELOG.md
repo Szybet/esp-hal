@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `WifiController::set_max_tx_power`, allowing the configuration of the maximum Wi-Fi transmitting power. (#4906)
 - Basic WiFi support for ESP32-C5 (#5003)
 - `set_band_mode` to support 5G-band (#5023)
+- BLE Support for ESP32-C5 (#5065)
+- IEEE 802.15.4 Support for ESP32-C5 (#5070)
+- WiFi Support for ESP32-C61 (#5255)
+- BLE Support for ESP32-C61 (#5273)
 
 ### Changed
 
@@ -52,22 +56,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `WifiController::scan_with_config_async` has been changed to `WifiController::scan_async` (#4946)
 - Various structs now use the `Ssid` type to represent SSIDs instead of `String` (#4953)
 - Update to `bt-hci` version 0.8 and `trouble-host` version 0.6 (#4962)
-- `WifiController::is_connected()` and `WifiController::is_started()` now return a simple `bool` instead of `Result<bool, WifiError>` and are marked as unstable (#4971)
+- `WifiController::is_connected()` now returns a simple `bool` instead of `Result<bool, WifiError>` and is marked as unstable (#4971)
 - `ScanMethod` has been moved to `wifi::sta` (#5033)
 - `set_protocols` / `set_bandwidths` changed to support 5G-band (#5023)
 - `CountryInfo` is now unstable (#4981)
-- MAC addresses now should be obtained from `esp_hal::efuse::Efuse::interface_mac_address(InterfaceMacAddress::...)`. (#5002)
+- MAC addresses now should be obtained from `esp_hal::efuse::interface_mac_address(InterfaceMacAddress::...)`. (#5002)
 - `WifiError::Unknown(i32)` has been renamed to `WifiError::Internal(i32)` (#5018)
+- The default BLE task priority is no longer higher than the maximum priority supported by the OS (#5074)
+- Use drivers from ESP-IDF v5.5.3 (#5226)
 
 ### Fixed
 
 - Avoid panicking in WiFi scan if an access point with using an unmapped auth-method is found (#4458)
 - Fixed a linker error (about missing symbols) when the `wifi` feature is selected but the code doesn't use it (#4513)
-- `Controller::stop_async()` now returns `WifiError::NotStarted` when the `Controller` has not been started (#4504)
 - ESP32-C2: Disable BLE controller before deinitializing the stack (#4606)
 - Fix a crash after shutting down WiFi (#4761)
 - Fix a crash when trying to handle an unknown WiFi event (#4942)
 - Align IEEE 802.15.4 driver with ESP-IDF 5.5.2 C driver: overhauled ISR event handling, added timer0-based ACK timeout, per-state stop dispatch, TX deferral with pending TX mechanism, CCA support, ACK frame return, and fixed TX power default (20 dBm) (#5006)
+- `WifiController::set_config` now stops the Wi-Fi controller on error to avoid leaving the controller in an inconsistent state. (#5100)
 
 ### Removed
 
@@ -88,7 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `WifiController` methods `start_async` and `stop_async` have been removed. `set_config` will now make sure that the controller is started / re-started as needed. Dropping the controller will stop it first. (#4984)
 - `power_save` has been dropped from `ControllerConfig` (#4981)
 - MAC address getters: `access_point_mac()`, `station_mac()` and `ble::mac()`. (#5002)
-- `WifiError::{Interface, Nvs, InvalidMac, WakeFailed, WouldBlock, PostFail, UnknownWifiMode, NotInitialized, NotStopped, Mode, State, ControlBlock, Timeout, InvalidInitState, StopState, NotAssociated, TxDisallowed, Internal(i32), WrongClockConfig, SchedulerNotInitialized, AdcIsUsed}` have been removed (#5018)
+- `WifiController::is_started()` has been removed (#5039)
+- `WifiError::{Interface, Nvs, InvalidMac, WakeFailed, WouldBlock, PostFail, UnknownWifiMode, NotInitialized, NotStopped, Mode, State, ControlBlock, Timeout, InvalidInitState, StopState, NotAssociated, TxDisallowed, Internal(i32), WrongClockConfig, SchedulerNotInitialized, AdcIsUsed, NotStarted}` have been removed (#5018, #5039)
 
 ## [v0.17.0] - 2025-10-30
 

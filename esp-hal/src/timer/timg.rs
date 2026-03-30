@@ -71,17 +71,17 @@ use core::marker::PhantomData;
 use super::Error;
 #[cfg(timergroup_timg1)]
 use crate::peripherals::TIMG1;
-#[cfg(soc_has_clock_node_timg0_function_clock)]
-use crate::soc::clocks::Timg0FunctionClockConfig;
-#[cfg(soc_has_clock_node_timg0_wdt_clock)]
-use crate::soc::clocks::Timg0WdtClockConfig;
+#[cfg(soc_has_clock_node_timg_function_clock)]
+use crate::soc::clocks::TimgFunctionClockConfig;
+#[cfg(soc_has_clock_node_timg_wdt_clock)]
+use crate::soc::clocks::TimgWdtClockConfig;
 use crate::{
     asynch::AtomicWaker,
     interrupt::{self, InterruptConfigurable, InterruptHandler},
     pac::timg0::RegisterBlock,
     peripherals::{Interrupt, TIMG0},
     private::Sealed,
-    soc::clocks::ClockTree,
+    soc::clocks,
     system::PeripheralClockControl,
     time::{Duration, Instant, Rate},
 };
@@ -104,9 +104,7 @@ cfg_if::cfg_if! {
         _ => "a general purpose timer",
     }
 )]
-/// A timer group consisting of
-/// # {timers}
-/// and a watchdog timer.
+/// A timer group consisting of __timers__ and a watchdog timer.
 pub struct TimerGroup<'d, T>
 where
     T: TimerGroupInstance + 'd,
@@ -125,15 +123,9 @@ where
 pub trait TimerGroupInstance {
     fn id() -> u8;
     fn register_block() -> *const RegisterBlock;
-    #[cfg(soc_has_clock_node_timg0_function_clock)]
-    fn configure_src_clk(src: Timg0FunctionClockConfig);
-    fn enable_peripheral();
-    fn reset_peripheral();
-    #[cfg(soc_has_clock_node_timg0_wdt_clock)]
-    fn configure_wdt_src_clk(src: Timg0WdtClockConfig);
-    #[cfg(soc_has_clock_node_timg0_wdt_clock)]
-    fn gate_wdt_src_clk(enable: bool);
-    fn wdt_src_frequency() -> Rate;
+    #[cfg(soc_has_clock_node_timg_function_clock)]
+    fn clock_instance() -> clocks::TimgInstance;
+    fn peripheral() -> crate::system::Peripheral;
     fn wdt_interrupt() -> Interrupt;
 }
 
@@ -148,51 +140,13 @@ impl TimerGroupInstance for TIMG0<'_> {
         Self::regs()
     }
 
-    #[cfg(soc_has_clock_node_timg0_function_clock)]
-    fn configure_src_clk(src: Timg0FunctionClockConfig) {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            crate::soc::clocks::configure_timg0_function_clock(clocks, src);
-            crate::soc::clocks::request_timg0_function_clock(clocks);
-        });
+    #[cfg(soc_has_clock_node_timg_function_clock)]
+    fn clock_instance() -> clocks::TimgInstance {
+        clocks::TimgInstance::Timg0
     }
 
-    fn enable_peripheral() {
-        PeripheralClockControl::enable(crate::system::Peripheral::Timg0);
-    }
-
-    fn reset_peripheral() {
-        // FIXME: for TIMG0 do nothing for now because the reset breaks
-        // `time::Instant::now`
-    }
-
-    #[cfg(soc_has_clock_node_timg0_wdt_clock)]
-    fn configure_wdt_src_clk(src: Timg0WdtClockConfig) {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            crate::soc::clocks::configure_timg0_wdt_clock(clocks, src)
-        });
-    }
-
-    #[cfg(soc_has_clock_node_timg0_wdt_clock)]
-    fn gate_wdt_src_clk(enable: bool) {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            if enable {
-                crate::soc::clocks::request_timg0_wdt_clock(clocks)
-            } else {
-                crate::soc::clocks::release_timg0_wdt_clock(clocks)
-            }
-        });
-    }
-
-    fn wdt_src_frequency() -> Rate {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            cfg_if::cfg_if! {
-                if #[cfg(soc_has_clock_node_timg0_wdt_clock)] {
-                    Rate::from_hz(crate::soc::clocks::timg0_wdt_clock_frequency(clocks))
-                } else {
-                    Rate::from_hz(crate::soc::clocks::apb_clk_frequency(clocks))
-                }
-            }
-        })
+    fn peripheral() -> crate::system::Peripheral {
+        crate::system::Peripheral::Timg0
     }
 
     fn wdt_interrupt() -> Interrupt {
@@ -211,50 +165,13 @@ impl TimerGroupInstance for crate::peripherals::TIMG1<'_> {
         Self::regs()
     }
 
-    #[cfg(soc_has_clock_node_timg0_function_clock)]
-    fn configure_src_clk(src: Timg0FunctionClockConfig) {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            crate::soc::clocks::configure_timg1_function_clock(clocks, src);
-            crate::soc::clocks::request_timg1_function_clock(clocks);
-        });
+    #[cfg(soc_has_clock_node_timg_function_clock)]
+    fn clock_instance() -> clocks::TimgInstance {
+        clocks::TimgInstance::Timg1
     }
 
-    fn enable_peripheral() {
-        PeripheralClockControl::enable(crate::system::Peripheral::Timg1);
-    }
-
-    fn reset_peripheral() {
-        PeripheralClockControl::reset(crate::system::Peripheral::Timg1);
-    }
-
-    #[cfg(soc_has_clock_node_timg0_wdt_clock)]
-    fn configure_wdt_src_clk(src: Timg0WdtClockConfig) {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            crate::soc::clocks::configure_timg1_wdt_clock(clocks, src)
-        });
-    }
-
-    #[cfg(soc_has_clock_node_timg0_wdt_clock)]
-    fn gate_wdt_src_clk(enable: bool) {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            if enable {
-                crate::soc::clocks::request_timg1_wdt_clock(clocks)
-            } else {
-                crate::soc::clocks::release_timg1_wdt_clock(clocks)
-            }
-        });
-    }
-
-    fn wdt_src_frequency() -> Rate {
-        crate::soc::clocks::ClockTree::with(|clocks| {
-            cfg_if::cfg_if! {
-                if #[cfg(soc_has_clock_node_timg1_wdt_clock)] {
-                    Rate::from_hz(crate::soc::clocks::timg1_wdt_clock_frequency(clocks))
-                } else {
-                    Rate::from_hz(crate::soc::clocks::apb_clk_frequency(clocks))
-                }
-            }
-        })
+    fn peripheral() -> crate::system::Peripheral {
+        crate::system::Peripheral::Timg1
     }
 
     fn wdt_interrupt() -> Interrupt {
@@ -268,11 +185,21 @@ where
 {
     /// Construct a new instance of [`TimerGroup`] in blocking mode
     pub fn new(_timer_group: T) -> Self {
-        T::reset_peripheral();
-        T::enable_peripheral();
+        // TODO: use PeripheralGuard
+        if PeripheralClockControl::enable(T::peripheral()) {
+            PeripheralClockControl::reset(T::peripheral());
+        } else {
+            // Refcount was more than 0. Decrement to avoid overflow because we don't handle
+            // dropping the driver.
+            PeripheralClockControl::disable(T::peripheral());
+        }
 
-        #[cfg(soc_has_clock_node_timg0_function_clock)]
-        T::configure_src_clk(Timg0FunctionClockConfig::default());
+        #[cfg(soc_has_clock_node_timg_function_clock)]
+        clocks::ClockTree::with(|clocks| {
+            let clock = T::clock_instance();
+            clock.configure_function_clock(clocks, TimgFunctionClockConfig::default());
+            clock.request_function_clock(clocks);
+        });
 
         Self {
             _timer_group: PhantomData,
@@ -495,15 +422,17 @@ impl Timer<'_> {
     }
 
     fn source_frequency(&self) -> Rate {
-        let hz = ClockTree::with(|clocks| {
+        let hz = clocks::ClockTree::with(|clocks| {
             cfg_if::cfg_if! {
-                if #[cfg(soc_has_clock_node_timg0_function_clock)] {
-                    match self.timer_group() {
-                        0 => crate::soc::clocks::timg0_function_clock_frequency(clocks),
-                        #[cfg(soc_has_clock_node_timg1_function_clock)]
-                        1 => crate::soc::clocks::timg1_function_clock_frequency(clocks),
+                if #[cfg(soc_has_clock_node_timg_function_clock)] {
+                    let timg = match self.timer_group() {
+                        0 => crate::soc::clocks::TimgInstance::Timg0,
+                        #[cfg(soc_has_timg1)]
+                        1 => crate::soc::clocks::TimgInstance::Timg1,
                         _ => unreachable!()
-                    }
+                    };
+
+                    timg.function_clock_frequency(clocks)
                 } else {
                     crate::soc::clocks::apb_clk_frequency(clocks)
                 }
@@ -670,8 +599,10 @@ where
         };
 
         this.set_write_protection(false);
-        #[cfg(soc_has_clock_node_timg0_wdt_clock)]
-        TG::configure_wdt_src_clk(Timg0WdtClockConfig::default());
+        #[cfg(soc_has_clock_node_timg_wdt_clock)]
+        clocks::ClockTree::with(|clocks| {
+            TG::clock_instance().configure_wdt_clock(clocks, TimgWdtClockConfig::default())
+        });
         this.set_write_protection(true);
 
         this
@@ -703,9 +634,9 @@ where
 
         self.set_write_protection(false);
 
-        #[cfg(soc_has_clock_node_timg0_wdt_clock)]
+        #[cfg(soc_has_clock_node_timg_wdt_clock)]
         if enabled {
-            TG::gate_wdt_src_clk(true);
+            clocks::ClockTree::with(|clocks| TG::clock_instance().request_wdt_clock(clocks));
         }
 
         reg_block
@@ -728,9 +659,9 @@ where
                 .modify(|_, w| w.wdt_conf_update_en().set_bit());
         }
 
-        #[cfg(soc_has_clock_node_timg0_wdt_clock)]
+        #[cfg(soc_has_clock_node_timg_wdt_clock)]
         if !enabled {
-            TG::gate_wdt_src_clk(false);
+            clocks::ClockTree::with(|clocks| TG::clock_instance().release_wdt_clock(clocks));
         }
 
         self.set_write_protection(true);
@@ -759,7 +690,16 @@ where
 
     /// Set the timeout, in microseconds, of the watchdog timer
     pub fn set_timeout(&mut self, stage: MwdtStage, timeout: Duration) {
-        let clk_src = TG::wdt_src_frequency();
+        let clk_src = clocks::ClockTree::with(|clocks| {
+            cfg_if::cfg_if! {
+                if #[cfg(soc_has_clock_node_timg_wdt_clock)] {
+                    Rate::from_hz(TG::clock_instance().wdt_clock_frequency(clocks))
+                } else {
+                    Rate::from_hz(clocks::apb_clk_frequency(clocks))
+                }
+            }
+        });
+
         let timeout_ticks = timeout.as_micros() * clk_src.as_mhz() as u64;
 
         let reg_block = unsafe { &*TG::register_block() };

@@ -30,9 +30,17 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::println;
-use esp_radio::wifi::{Config, Interface, WifiController, scan::ScanConfig, sta::StationConfig};
+use esp_radio::wifi::{
+    Config,
+    ControllerConfig,
+    Interface,
+    WifiController,
+    scan::ScanConfig,
+    sta::StationConfig,
+};
 use log::{error, info};
 use sntpc::{NtpContext, NtpTimestampGenerator, get_time};
+use sntpc_net_embassy::UdpSocketWrapper;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -87,8 +95,19 @@ async fn main(spawner: Spawner) -> ! {
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
-    let (mut controller, interfaces) =
-        esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
+    let station_config = Config::Station(
+        StationConfig::default()
+            .with_ssid(SSID)
+            .with_password(PASSWORD.into()),
+    );
+
+    println!("Starting wifi");
+    let (mut controller, interfaces) = esp_radio::wifi::new(
+        peripherals.WIFI,
+        ControllerConfig::default().with_initial_config(station_config),
+    )
+    .unwrap();
+    println!("Wifi configured and started!");
 
     let wifi_interface = interfaces.station;
 
@@ -105,15 +124,6 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
 
-    let station_config = Config::Station(
-        StationConfig::default()
-            .with_ssid(SSID)
-            .with_password(PASSWORD.into()),
-    );
-    println!("Starting wifi");
-    controller.set_config(&station_config).unwrap();
-    println!("Wifi started!");
-
     println!("Scan");
     let scan_config = ScanConfig::default().with_max(10);
     let result = controller.scan_async(&scan_config).await.unwrap();
@@ -121,8 +131,8 @@ async fn main(spawner: Spawner) -> ! {
         println!("{:?}", ap);
     }
 
-    spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task(runner)).ok();
+    spawner.spawn(connection(controller).unwrap());
+    spawner.spawn(net_task(runner).unwrap());
 
     let mut rx_meta = [PacketMetadata::EMPTY; 16];
     let mut rx_buffer = [0; 4096];
@@ -149,6 +159,8 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     socket.bind(123).unwrap();
+
+    let socket = UdpSocketWrapper::new(socket);
 
     // Display initial Rtc time before synchronization
     let now = jiff::Timestamp::from_microsecond(rtc.current_time_us() as i64).unwrap();

@@ -46,30 +46,25 @@
 #![cfg_attr(not(feature = "rt"), expect(unused))]
 
 #[cfg(soc_has_clock_node_lp_slow_clk)]
-#[cfg_attr(not(lp_timer_driver_supported), expect(unused))]
 use clocks::LpSlowClkConfig;
 #[cfg(all(not(esp32s2), soc_has_clock_node_rtc_slow_clk))]
 use clocks::RtcSlowClkConfig;
-#[cfg(soc_has_clock_node_timg0_function_clock)]
-use clocks::Timg0FunctionClockConfig;
-use esp_rom_sys::rom::ets_delay_us;
+#[cfg(soc_has_clock_node_timg_function_clock)]
+use clocks::TimgFunctionClockConfig;
 
-use crate::{
-    ESP_HAL_LOCK,
-    peripherals::TIMG0,
-    soc::clocks::{self, ClockTree},
-    time::Rate,
-};
-
-#[cfg_attr(esp32, path = "clocks_ll/esp32.rs")]
-#[cfg_attr(esp32c2, path = "clocks_ll/esp32c2.rs")]
-#[cfg_attr(esp32c3, path = "clocks_ll/esp32c3.rs")]
-#[cfg_attr(esp32c5, path = "clocks_ll/esp32c5.rs")]
-#[cfg_attr(esp32c6, path = "clocks_ll/esp32c6.rs")]
-#[cfg_attr(esp32h2, path = "clocks_ll/esp32h2.rs")]
-#[cfg_attr(esp32s2, path = "clocks_ll/esp32s2.rs")]
-#[cfg_attr(esp32s3, path = "clocks_ll/esp32s3.rs")]
-pub(crate) mod clocks_ll;
+/// Low-level clock control
+///
+/// <section class="warning">
+/// This module provides experimental low-level clock control functionality. These functions
+/// can render your device temporarily unusable. Use with caution.
+/// </section>
+#[cfg(feature = "unstable")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+pub mod ll {
+    #[cfg(feature = "unstable")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+    pub use crate::soc::clocks::*;
+}
 
 #[cfg(feature = "unstable")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
@@ -77,6 +72,9 @@ pub use crate::soc::clocks::ClockConfig;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use crate::soc::clocks::ClockConfig;
 pub use crate::soc::clocks::CpuClock;
+use crate::{ESP_HAL_LOCK, soc::clocks, time::Rate};
+#[cfg(soc_has_clock_node_timg_calibration_clock)]
+use crate::{peripherals::TIMG0, soc::clocks::ClockTree};
 
 impl CpuClock {
     #[procmacros::doc_replace]
@@ -95,7 +93,7 @@ impl CpuClock {
         cfg_if::cfg_if! {
             if #[cfg(esp32c2)] {
                 Self::_120MHz
-            } else if #[cfg(any(esp32c3, esp32c6))] {
+            } else if #[cfg(any(esp32c3, esp32c6, esp32c61))] {
                 Self::_160MHz
             } else if #[cfg(esp32h2)] {
                 Self::_96MHz
@@ -110,20 +108,16 @@ impl CpuClock {
 #[instability::unstable]
 pub struct RtcClock;
 
-cfg_if::cfg_if! {
-    if #[cfg(soc_has_clock_node_timg_calibration_clock)] {
-        use crate::soc::clocks::TimgCalibrationClockConfig;
-    } else if #[cfg(soc_has_clock_node_timg0_calibration_clock)] {
-        use crate::soc::clocks::Timg0CalibrationClockConfig as TimgCalibrationClockConfig;
-    }
-}
+#[cfg(soc_has_clock_node_timg_calibration_clock)]
+use crate::soc::clocks::TimgCalibrationClockConfig;
 
 /// RTC Watchdog Timer driver.
 impl RtcClock {
     const CAL_FRACT: u32 = 19;
 
-    /// Get the RTC_SLOW_CLK source.
-    #[cfg_attr(all(not(feature = "unstable"), esp32c5), expect(dead_code))]
+    /// Get the nominal value of the RTC_SLOW_CLK source.
+    #[instability::unstable]
+    #[cfg(any(soc_has_clock_node_lp_slow_clk, soc_has_clock_node_rtc_slow_clk))]
     pub fn slow_freq() -> Rate {
         cfg_if::cfg_if! {
             if #[cfg(soc_has_clock_node_rtc_slow_clk)] {
@@ -143,30 +137,30 @@ impl RtcClock {
     /// may happen if 32k XTAL is being calibrated, but the oscillator has
     /// not started up (due to incorrect loading capacitance, board design
     /// issue, or lack of 32 XTAL on board).
-    #[cfg_attr(not(lp_timer_driver_supported), expect(unused))]
+    #[cfg(soc_has_clock_node_timg_calibration_clock)]
     pub(crate) fn calibrate(cal_clk: TimgCalibrationClockConfig, slowclk_cycles: u32) -> u32 {
         ClockTree::with(|clocks| {
             let xtal_freq = Rate::from_hz(clocks::xtal_clk_frequency(clocks));
 
-            #[cfg(timergroup_rc_fast_calibration_divider)]
-            let slowclk_cycles = if cal_clk == TimgCalibrationClockConfig::RcFastDivClk
-                && crate::soc::chip_revision_above(property!(
-                    "timergroup.rc_fast_calibration_divider_min_rev"
-                )) {
-                // Avoid excessive calibration time by dividing the cycles by the divider
-                // that exists between FOSC and the calibration circuit.
-                slowclk_cycles / property!("timergroup.rc_fast_calibration_divider")
-            } else {
-                slowclk_cycles
-            };
-
             let (xtal_cycles, _) = Clocks::measure_rtc_clock(
                 clocks,
                 cal_clk,
-                #[cfg(soc_has_clock_node_timg0_function_clock)]
-                Timg0FunctionClockConfig::XtalClk,
+                #[cfg(soc_has_clock_node_timg_function_clock)]
+                TimgFunctionClockConfig::XtalClk,
                 slowclk_cycles,
             );
+
+            if xtal_cycles == 0 {
+                warn!("{:?} calibration failed", cal_clk);
+            } else {
+                debug!("Counted {} XTAL cycles", xtal_cycles);
+
+                debug!(
+                    "{:?} frequency: {}",
+                    cal_clk,
+                    (xtal_freq / xtal_cycles) * slowclk_cycles
+                );
+            }
 
             let divider = xtal_freq.as_mhz() as u64 * slowclk_cycles as u64;
 
@@ -209,7 +203,6 @@ impl Clocks {
             unsafe { ACTIVE_CLOCKS = Some(config) };
         });
 
-        #[cfg(lp_timer_driver_supported)]
         Clocks::calibrate_rtc_slow_clock();
     }
 
@@ -239,11 +232,12 @@ impl Clocks {
             // frequency. In the future, we should turn the MCPWM config structs into
             // plain old data structures and remove this pre-configuration, otherwise we will not be
             // able to select a different clock source.
-            #[cfg(soc_has_clock_node_mcpwm0_function_clock)]
-            clocks::configure_mcpwm0_function_clock(clocks, Default::default());
-            #[cfg(soc_has_clock_node_mcpwm1_function_clock)]
-            clocks::configure_mcpwm1_function_clock(clocks, Default::default());
-
+            #[cfg(soc_has_clock_node_mcpwm_function_clock)]
+            {
+                clocks::McpwmInstance::Mcpwm0.configure_function_clock(clocks, Default::default());
+                #[cfg(soc_has_mcpwm1)]
+                clocks::McpwmInstance::Mcpwm1.configure_function_clock(clocks, Default::default());
+            }
             // Until we have every clock consumer modelled, we should manually keep clocks alive
             #[cfg(soc_has_clock_node_rc_fast_clk)]
             clocks::request_rc_fast_clk(clocks);
@@ -275,13 +269,31 @@ impl Clocks {
     /// that is measured by a low-frequency clock. This function can be used to calibrate two
     /// clocks to each other, e.g. to determine a rough value of the XTAL clock, or to determine
     /// the current frequency of a low-precision RC oscillator.
+    #[cfg(soc_has_clock_node_timg_calibration_clock)]
     pub(crate) fn measure_rtc_clock(
         clocks: &mut ClockTree,
         rtc_clock: TimgCalibrationClockConfig,
         // TODO: verify function clock is used, C6 TRM suggests fixed XTAL_CLK
-        #[cfg(soc_has_clock_node_timg0_function_clock)] function_clock: Timg0FunctionClockConfig,
+        #[cfg(soc_has_clock_node_timg_function_clock)] function_clock: TimgFunctionClockConfig,
         slow_cycles: u32,
     ) -> (u32, Rate) {
+        use esp_rom_sys::rom::ets_delay_us;
+
+        #[cfg(timergroup_rc_fast_calibration_divider)]
+        let calibration_divider = if rtc_clock == TimgCalibrationClockConfig::RcFastDivClk
+            && crate::soc::chip_revision_above(property!(
+                "timergroup.rc_fast_calibration_divider_min_rev"
+            )) {
+            property!("timergroup.rc_fast_calibration_divider")
+        } else {
+            1
+        };
+        #[cfg(not(timergroup_rc_fast_calibration_divider))]
+        let calibration_divider = 1;
+
+        // On some revisions calibration uses a divided RC_FAST tick.
+        let calibration_cycles = (slow_cycles / calibration_divider).max(1);
+
         // By default the TIMG0 bus clock is running. Do not create a peripheral guard as dropping
         // it would reset the timer, and it would enable its WDT.
 
@@ -295,35 +307,30 @@ impl Clocks {
 
         // Make sure we measure the crystal.
         cfg_if::cfg_if! {
-            if #[cfg(soc_has_clock_node_timg0_function_clock)] {
-                let current_function_clock = clocks::timg0_function_clock_config(clocks);
-                clocks::configure_timg0_function_clock(clocks, function_clock);
-                clocks::request_timg0_function_clock(clocks);
+            if #[cfg(soc_has_clock_node_timg_function_clock)] {
+                let current_function_clock = clocks::TimgInstance::Timg0.function_clock_config(clocks);
+                clocks::TimgInstance::Timg0.configure_function_clock(clocks, function_clock);
+                clocks::TimgInstance::Timg0.request_function_clock(clocks);
             }
         }
-        cfg_if::cfg_if! {
-            if #[cfg(soc_has_clock_node_timg_calibration_clock)] {
-                let current_calib_clock = clocks::timg_calibration_clock_config(clocks);
-                clocks::configure_timg_calibration_clock(clocks, rtc_clock);
-                clocks::request_timg_calibration_clock(clocks);
 
-                let calibration_clock_frequency = clocks::timg_calibration_clock_frequency(clocks);
-            } else {
-                let current_calib_clock = clocks::timg0_calibration_clock_config(clocks);
-                clocks::configure_timg0_calibration_clock(clocks, rtc_clock);
-                clocks::request_timg0_calibration_clock(clocks);
+        let current_calib_clock = clocks::timg_calibration_clock_config(clocks);
+        clocks::configure_timg_calibration_clock(clocks, rtc_clock);
+        clocks::request_timg_calibration_clock(clocks);
 
-                let calibration_clock_frequency = clocks::timg0_calibration_clock_frequency(clocks);
-            }
-        }
+        let calibration_clock_frequency = clocks::timg_calibration_clock_frequency(clocks);
+
+        let effective_calibration_clock_frequency =
+            calibration_clock_frequency / calibration_divider;
 
         // Set up timeout based on the calibration clock frequency. This is counted in XTAL_CLK
         // cycles.
         #[cfg(not(esp32))]
         {
-            let function_clk_freq = clocks::timg0_function_clock_frequency(clocks) as u64;
+            let function_clk_freq =
+                clocks::TimgInstance::Timg0.function_clock_frequency(clocks) as u64;
             let expected_function_clock_cycles = (function_clk_freq * slow_cycles as u64
-                / calibration_clock_frequency as u64)
+                / effective_calibration_clock_frequency as u64)
                 as u32;
 
             TIMG0::regs().rtccalicfg2().modify(|_, w| unsafe {
@@ -335,14 +342,14 @@ impl Clocks {
         }
 
         TIMG0::regs().rtccalicfg().modify(|_, w| unsafe {
-            w.rtc_cali_max().bits(slow_cycles as u16);
+            w.rtc_cali_max().bits(calibration_cycles as u16);
             w.rtc_cali_start_cycling().clear_bit();
             w.rtc_cali_start().set_bit()
         });
 
         // Delay, otherwise the CPU may read back the previous state of the completion flag and skip
         // waiting.
-        let us_time_estimate = slow_cycles * 1_000_000 / calibration_clock_frequency;
+        let us_time_estimate = slow_cycles * 1_000_000 / effective_calibration_clock_frequency;
         ets_delay_us(us_time_estimate);
 
         #[cfg(esp32)]
@@ -384,39 +391,32 @@ impl Clocks {
             .rtccalicfg()
             .modify(|_, w| w.rtc_cali_start().clear_bit());
 
-        // TODO: this would be nicer if we had clock node objects instead of free-standing functions
-        cfg_if::cfg_if! {
-            if #[cfg(soc_has_clock_node_timg_calibration_clock)] {
-                if let Some(calib_clock) = current_calib_clock
-                    && calib_clock != rtc_clock
-                {
-                    clocks::configure_timg_calibration_clock(clocks, calib_clock);
-                }
-                clocks::release_timg_calibration_clock(clocks);
-            } else {
-                if let Some(calib_clock) = current_calib_clock
-                    && calib_clock != rtc_clock
-                {
-                    clocks::configure_timg0_calibration_clock(clocks, calib_clock);
-                }
-                clocks::release_timg0_calibration_clock(clocks);
-            }
+        if let Some(calib_clock) = current_calib_clock
+            && calib_clock != rtc_clock
+        {
+            clocks::configure_timg_calibration_clock(clocks, calib_clock);
         }
+        clocks::release_timg_calibration_clock(clocks);
 
-        #[cfg(soc_has_clock_node_timg0_function_clock)]
+        #[cfg(soc_has_clock_node_timg_function_clock)]
         {
             if let Some(func_clock) = current_function_clock
                 && func_clock != function_clock
             {
-                clocks::configure_timg0_function_clock(clocks, func_clock);
+                clocks::TimgInstance::Timg0.configure_function_clock(clocks, func_clock);
             }
-            clocks::release_timg0_function_clock(clocks);
+            clocks::TimgInstance::Timg0.release_function_clock(clocks);
         }
 
         (cali_value, Rate::from_hz(calibration_clock_frequency))
     }
 
-    #[cfg(lp_timer_driver_supported)]
+    #[cfg(not(soc_has_clock_node_timg_calibration_clock))]
+    pub(crate) fn calibrate_rtc_slow_clock() {
+        // Do nothing until TIMG_CALIBRATION_CLOCK is added to device metadata.
+    }
+
+    #[cfg(soc_has_clock_node_timg_calibration_clock)]
     pub(crate) fn calibrate_rtc_slow_clock() {
         // Unfortunate device specific mapping.
         // TODO: fix it by generating cfgs for each mux input?
@@ -433,7 +433,7 @@ impl Clocks {
                     #[cfg(esp32c2)]
                     RtcSlowClkConfig::OscSlow => TimgCalibrationClockConfig::Osc32kClk,
                 };
-            } else {
+            } else if #[cfg(soc_has_clock_node_lp_slow_clk)]{
                 let slow_clk = match unwrap!(ClockTree::with(clocks::lp_slow_clk_config)) {
                     LpSlowClkConfig::OscSlow => TimgCalibrationClockConfig::Xtal32kClk, //?
                     LpSlowClkConfig::Xtal32k => TimgCalibrationClockConfig::Xtal32kClk,
@@ -458,181 +458,24 @@ impl Clocks {
     }
 }
 
-#[cfg(any(
-    soc_has_bt,
-    all(feature = "unstable", soc_has_ieee802154),
-    soc_has_wifi
-))]
-mod modem {
-    use core::{cell::Cell, marker::PhantomData};
-
-    use esp_sync::RawMutex;
-
-    use super::*;
-    #[cfg(soc_has_bt)]
-    use crate::peripherals::BT;
-    #[cfg(all(feature = "unstable", soc_has_ieee802154))]
-    use crate::peripherals::IEEE802154;
-    #[cfg(soc_has_wifi)]
-    use crate::peripherals::WIFI;
-    use crate::private::Sealed;
-
-    /// Tracks the number of references to the PHY clock.
-    static PHY_CLOCK_REF_COUNTER: embassy_sync::blocking_mutex::Mutex<RawMutex, Cell<u8>> =
-        embassy_sync::blocking_mutex::Mutex::new(Cell::new(0));
-
-    fn increase_phy_clock_ref_count_internal() {
-        PHY_CLOCK_REF_COUNTER.lock(|phy_clock_ref_counter| {
-            let phy_clock_ref_count = phy_clock_ref_counter.get();
-
-            if phy_clock_ref_count == 0 {
-                clocks_ll::enable_phy(true);
-            }
-            let new_phy_clock_ref_count = unwrap!(
-                phy_clock_ref_count.checked_add(1),
-                "PHY clock ref count overflowed."
-            );
-
-            phy_clock_ref_counter.set(new_phy_clock_ref_count);
-        })
-    }
-
-    fn decrease_phy_clock_ref_count_internal() {
-        PHY_CLOCK_REF_COUNTER.lock(|phy_clock_ref_counter| {
-            let new_phy_clock_ref_count = unwrap!(
-                phy_clock_ref_counter.get().checked_sub(1),
-                "PHY clock ref count underflowed. Either you forgot a PhyClockGuard, or used ModemClockController::decrease_phy_clock_ref_count incorrectly."
-            );
-
-            if new_phy_clock_ref_count == 0 {
-                clocks_ll::enable_phy(false);
-            }
-
-            phy_clock_ref_counter.set(new_phy_clock_ref_count);
-        })
-    }
-
-    #[inline]
-    #[instability::unstable]
-    /// Do any common initial initialization needed for the radio clocks
-    pub fn init_radio_clocks() {
-        clocks_ll::init_clocks();
-    }
-
-    #[instability::unstable]
-    #[derive(Debug)]
-    /// Prevents the PHY clock from being disabled.
-    ///
-    /// As long as at least one [PhyClockGuard] exists, the PHY clock will remain
-    /// active. To release this guard, you can either let it go out of scope or use
-    /// [PhyClockGuard::release] to explicitly release it.
-    pub struct PhyClockGuard<'d> {
-        _phantom: PhantomData<&'d ()>,
-    }
-
-    impl PhyClockGuard<'_> {
-        #[instability::unstable]
-        #[inline]
-        /// Release the clock guard.
-        ///
-        /// The PHY clock will be disabled, if this is the last clock guard.
-        pub fn release(self) {}
-    }
-
-    impl Drop for PhyClockGuard<'_> {
-        fn drop(&mut self) {
-            decrease_phy_clock_ref_count_internal();
-        }
-    }
-
-    #[instability::unstable]
-    /// This trait provides common clock functionality for all modem peripherals.
-    pub trait ModemClockController<'d>: Sealed + 'd {
-        /// Enable the modem clock for this controller.
-        fn enable_modem_clock(&mut self, enable: bool);
-
-        /// Enable the PHY clock and acquire a [PhyClockGuard].
-        ///
-        /// The PHY clock will only be disabled, once all [PhyClockGuard]'s of all
-        /// modems were dropped.
-        fn enable_phy_clock(&self) -> PhyClockGuard<'d> {
-            increase_phy_clock_ref_count_internal();
-            PhyClockGuard {
-                _phantom: PhantomData,
-            }
-        }
-
-        /// Decreases the PHY clock reference count for this modem ignoring
-        /// currently alive [PhyClockGuard]s.
-        ///
-        /// # Panics
-        /// This function panics if the PHY clock is inactive. If the ref count is
-        /// lower than the number of alive [PhyClockGuard]s, dropping a guard can
-        /// now panic.
-        fn decrease_phy_clock_ref_count(&self) {
-            decrease_phy_clock_ref_count_internal();
-        }
-    }
-
-    #[cfg(soc_has_wifi)]
-    #[instability::unstable]
-    impl<'d> ModemClockController<'d> for WIFI<'d> {
-        fn enable_modem_clock(&mut self, enable: bool) {
-            clocks_ll::enable_wifi(enable);
-        }
-    }
-
-    #[cfg(soc_has_wifi)]
-    impl WIFI<'_> {
-        #[instability::unstable]
-        /// Reset the Wi-Fi MAC.
-        pub fn reset_wifi_mac(&mut self) {
-            clocks_ll::reset_wifi_mac();
-        }
-    }
-
-    #[cfg(soc_has_bt)]
-    #[instability::unstable]
-    impl<'d> ModemClockController<'d> for BT<'d> {
-        fn enable_modem_clock(&mut self, enable: bool) {
-            clocks_ll::enable_bt(enable);
-        }
-    }
-
-    #[cfg(soc_has_bt)]
-    impl BT<'_> {
-        /// Reset the Bluetooth Resolvable Private Address (RPA).
-        #[instability::unstable]
-        #[inline]
-        pub fn reset_rpa(&mut self) {
-            clocks_ll::reset_rpa();
-        }
-
-        /// Initialize BLE RTC clocks
-        #[instability::unstable]
-        #[inline]
-        pub fn ble_rtc_clk_init(&mut self) {
-            clocks_ll::ble_rtc_clk_init();
-        }
-    }
-
-    #[cfg(all(feature = "unstable", soc_has_ieee802154))]
-    #[instability::unstable]
-    impl<'d> ModemClockController<'d> for IEEE802154<'d> {
-        fn enable_modem_clock(&mut self, enable: bool) {
-            clocks_ll::enable_ieee802154(enable);
-        }
-    }
+/// The CPU clock frequency.
+pub fn cpu_clock() -> Rate {
+    Clocks::get().cpu_clock
 }
 
-#[cfg(all(
-    feature = "unstable",
-    any(soc_has_bt, soc_has_ieee802154, soc_has_wifi)
-))]
-pub use modem::*;
+/// The XTAL clock frequency.
+pub fn xtal_clock() -> Rate {
+    Clocks::get().xtal_clock
+}
 
-/// Calculate the necessary RTC_SLOW_CLK cycles to complete 1 millisecond.
-pub(crate) fn cycles_to_1ms() -> u16 {
+/// Read the calibrated RTC slow clock period from the STORE1 register.
+///
+/// The period is in unit of microseconds, represented as a fixed-point number
+/// with `RtcClock::CAL_FRACT` fractional bits.
+///
+/// Written by [`Clocks::calibrate_rtc_slow_clock`] during clock
+/// initialization.
+fn rtc_slow_cal_period() -> u64 {
     cfg_if::cfg_if! {
         if #[cfg(soc_has_lp_aon)] {
             use crate::peripherals::LP_AON;
@@ -641,10 +484,36 @@ pub(crate) fn cycles_to_1ms() -> u16 {
         }
     }
 
-    let period_13q19 = LP_AON::regs().store1().read().bits();
+    LP_AON::regs().store1().read().bits() as u64
+}
 
-    // 100_000_000 is used to get rid of `float` calculations
-    let period = (100_000_000 * period_13q19 as u64) / (1 << RtcClock::CAL_FRACT);
+/// Convert RTC slow clock ticks to microseconds using the calibrated period.
+#[cfg(lp_timer_driver_supported)]
+pub(crate) fn rtc_ticks_to_us(ticks: u64) -> u64 {
+    let period = rtc_slow_cal_period();
 
-    (100_000_000 * 1000 / period) as u16
+    // The LP timer is a 48-bit counter running from RTC_SLOW_CLK.
+    // `period` is a fixed point number with 19 fractional bits, it may be a 24-bit value if
+    // RTC_SLOW_CLK is as low as 32768 Hz. Just multiplying the two may cause an overflow on 64
+    // bits. We use a calculation that prevents overflow unconditionally because the counter reaches
+    // 2^19 pretty quickly. We could use a larger mask (up to 40 bits), but that would make the
+    // calculation slower and more complex for perhaps too little benefit.
+
+    const MASK: u64 = (1 << RtcClock::CAL_FRACT) - 1;
+    let upper = (ticks & !MASK) >> RtcClock::CAL_FRACT;
+    let lower = ticks & MASK;
+
+    upper * period + ((lower * period) >> RtcClock::CAL_FRACT)
+}
+
+/// Convert microseconds to RTC slow clock ticks using the calibrated period.
+pub(crate) fn us_to_rtc_ticks(time_in_us: u64) -> u64 {
+    let period = rtc_slow_cal_period();
+
+    if time_in_us > (u64::MAX >> RtcClock::CAL_FRACT) {
+        ((time_in_us / period) << RtcClock::CAL_FRACT)
+            + ((time_in_us % period) << RtcClock::CAL_FRACT) / period
+    } else {
+        (time_in_us << RtcClock::CAL_FRACT) / period
+    }
 }

@@ -1,8 +1,8 @@
 #![cfg_attr(docsrs, procmacros::doc_replace(
     "analog_pin" => {
-        cfg(esp32) => "let analog_pin = peripherals.GPIO32;",
-        cfg(any(esp32s2, esp32s3)) => "let analog_pin = peripherals.GPIO3;",
-        cfg(not(any(esp32, esp32s2, esp32s3)))  => "let analog_pin = peripherals.GPIO2;"
+        cfg(esp32) => "GPIO32",
+        cfg(any(esp32s2, esp32s3)) => "GPIO3",
+        cfg(not(any(esp32, esp32s2, esp32s3)))  => "GPIO2"
     }
 ))]
 //! # Analog to Digital Converter (ADC)
@@ -34,9 +34,8 @@
 //! # use esp_hal::analog::adc::Attenuation;
 //! # use esp_hal::analog::adc::Adc;
 //! # use esp_hal::delay::Delay;
-//! # {analog_pin}
 //! let mut adc1_config = AdcConfig::new();
-//! let mut pin = adc1_config.enable_pin(analog_pin, Attenuation::_11dB);
+//! let mut pin = adc1_config.enable_pin(peripherals.__analog_pin__, Attenuation::_11dB);
 //! let mut adc1 = Adc::new(peripherals.ADC1, adc1_config);
 //!
 //! let mut delay = Delay::new();
@@ -104,6 +103,27 @@ pub struct AdcPin<PIN, ADCI, CS = ()> {
     /// Calibration scheme used for the configured ADC pin
     pub cal_scheme: CS,
     _phantom: PhantomData<ADCI>,
+}
+
+impl<PIN: core::fmt::Debug, ADCI, CS: core::fmt::Debug> core::fmt::Debug for AdcPin<PIN, ADCI, CS> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AdcPin")
+            .field("pin", &self.pin)
+            .field("cal_scheme", &self.cal_scheme)
+            .finish()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<PIN: defmt::Format, ADCI, CS: defmt::Format> defmt::Format for AdcPin<PIN, ADCI, CS> {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        defmt::write!(
+            fmt,
+            "AdcPin {{ pin: {}, cal_scheme: {} }}",
+            self.pin,
+            self.cal_scheme
+        );
+    }
 }
 
 /// Configuration for the ADC.
@@ -239,6 +259,12 @@ trait AdcCalEfuse {
     ///
     /// Returns digital value for reference voltage for a given attenuation
     fn cal_code(atten: Attenuation) -> Option<u16>;
+
+    /// Get the ADC channel specific calibration
+    ///
+    /// Returns digital per channel offset from reference voltage
+    #[cfg(esp32c5)]
+    fn cal_chan_compens(atten: Attenuation, channel: u16) -> Option<i32>;
 }
 
 for_each_analog_function! {

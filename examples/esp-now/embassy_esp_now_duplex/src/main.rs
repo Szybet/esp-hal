@@ -17,9 +17,12 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::println;
-use esp_radio::{
-    esp_now::{BROADCAST_ADDRESS, EspNowManager, EspNowReceiver, EspNowSender, PeerInfo},
-    wifi::{Config, sta::StationConfig},
+use esp_radio::esp_now::{
+    BROADCAST_ADDRESS,
+    EspNowManager,
+    EspNowReceiver,
+    EspNowSender,
+    PeerInfo,
 };
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -47,11 +50,8 @@ async fn main(spawner: Spawner) -> ! {
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
     let wifi = peripherals.WIFI;
-    let (mut controller, interfaces) = esp_radio::wifi::new(wifi, Default::default()).unwrap();
     // start the controller in station mode
-    controller
-        .set_config(&Config::Station(StationConfig::default()))
-        .unwrap();
+    let (_controller, interfaces) = esp_radio::wifi::new(wifi, Default::default()).unwrap();
 
     let esp_now = interfaces.esp_now;
     esp_now.set_channel(11).unwrap();
@@ -65,8 +65,8 @@ async fn main(spawner: Spawner) -> ! {
         Mutex::<NoopRawMutex, _>::new(sender)
     );
 
-    spawner.spawn(listener(manager, receiver)).ok();
-    spawner.spawn(broadcaster(sender)).ok();
+    spawner.spawn(listener(manager, receiver).unwrap());
+    spawner.spawn(broadcaster(sender).unwrap());
 
     let mut ticker = Ticker::every(Duration::from_millis(500));
     loop {

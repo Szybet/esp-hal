@@ -12,6 +12,7 @@
 #![cfg_attr(esp32c3, doc = "**ESP32-C3**")]
 #![cfg_attr(esp32c5, doc = "**ESP32-C5**")]
 #![cfg_attr(esp32c6, doc = "**ESP32-C6**")]
+#![cfg_attr(esp32c61, doc = "**ESP32-C61**")]
 #![cfg_attr(esp32h2, doc = "**ESP32-H2**")]
 //! . Please ensure you are reading the correct documentation for your target
 //! device.
@@ -95,23 +96,6 @@ if let Ok(controller) = BleConnector::new(peripherals.BT, Default::default()) {}
 //! For maximum performance you might want to disable logging via
 //! a feature flag of the `log` crate. See [documentation](https://docs.rs/log/0.4.19/log/#compile-time-filters).
 //! You should set it to `release_max_level_off`.
-//!
-//! ### Wi-Fi performance considerations
-//!
-//! The default configuration is quite conservative to reduce power and memory consumption.
-//!
-//! There are a number of settings which influence the general performance. Optimal settings are chip and applications specific.
-//! You can get inspiration from the [ESP-IDF examples](https://github.com/espressif/esp-idf/tree/release/v5.3/examples/wifi/iperf)
-//!
-//! Please note that the configuration keys are usually named slightly different and not all configuration keys apply.
-#![cfg_attr(
-    feature = "wifi",
-    doc = "By default the power-saving mode is [`PowerSaveMode::None`](crate::wifi::PowerSaveMode::None) and `ESP_PHY_CONFIG_PHY_ENABLE_USB` is enabled by default."
-)]
-//! In addition pay attention to these configuration keys:
-//! - `ESP_RADIO_CONFIG_RX_QUEUE_SIZE`
-//! - `ESP_RADIO_CONFIG_TX_QUEUE_SIZE`
-//! - `ESP_RADIO_CONFIG_MAX_BURST_SIZE`
 #![cfg_attr(
     multi_core,
     doc = concat!(
@@ -168,8 +152,12 @@ extern crate esp_metadata_generated;
 
 extern crate alloc;
 
-// MUST be the first module
+// These modules rely on `#[macro_use]` so they must be the first ones declared
+mod coex_utils;
 mod fmt;
+pub(crate) mod reg_access;
+
+use core::marker::PhantomData;
 
 use esp_hal as hal;
 #[cfg(feature = "unstable")]
@@ -178,16 +166,11 @@ pub use esp_phy::CalibrationResult;
 #[cfg(not(feature = "unstable"))]
 use esp_phy::CalibrationResult;
 use esp_radio_rtos_driver as preempt;
-#[cfg(esp32)]
+#[cfg(all(esp32, feature = "unstable"))]
 use hal::analog::adc::{release_adc2, try_claim_adc2};
 #[cfg(feature = "wifi")]
 use hal::{after_snippet, before_snippet};
-use hal::{
-    clock::{Clocks, init_radio_clocks},
-    time::Rate,
-};
 use sys::include::esp_phy_calibration_data_t;
-
 pub(crate) mod sys {
     #[cfg(esp32)]
     pub use esp_wifi_sys_esp32::*;
@@ -199,6 +182,8 @@ pub(crate) mod sys {
     pub use esp_wifi_sys_esp32c5::*;
     #[cfg(esp32c6)]
     pub use esp_wifi_sys_esp32c6::*;
+    #[cfg(esp32c61)]
+    pub use esp_wifi_sys_esp32c61::*;
     #[cfg(esp32h2)]
     pub use esp_wifi_sys_esp32h2::*;
     #[cfg(esp32s2)]
@@ -207,6 +192,7 @@ pub(crate) mod sys {
     pub use esp_wifi_sys_esp32s3::*;
 }
 
+use crate::refcount::Refcount;
 #[cfg(feature = "wifi")]
 use crate::wifi::WifiError;
 
@@ -232,8 +218,11 @@ macro_rules! unstable_module {
     };
 }
 
+mod asynch;
 mod compat;
 mod interrupt_dispatch;
+mod radio_clocks;
+mod refcount;
 mod time;
 
 #[cfg(feature = "wifi")]
@@ -255,8 +244,6 @@ pub(crate) mod common_adapter;
 
 #[cfg(all(feature = "ble", bt_controller = "npl"))]
 pub(crate) static ESP_RADIO_LOCK: esp_sync::RawMutex = esp_sync::RawMutex::new();
-
-static RADIO_REFCOUNT: esp_sync::NonReentrantMutex<u32> = esp_sync::NonReentrantMutex::new(0);
 
 // this is just to verify that we use the correct defaults in `build.rs`
 #[allow(clippy::assertions_on_constants)] // TODO: try assert_eq once it's usable in const context
@@ -298,7 +285,7 @@ const _: () = {
 /// - The function may return an error if interrupts are disabled.
 /// - The function may return an error if initializing the underlying driver fails.
 pub(crate) fn init() {
-    #[cfg(esp32)]
+    #[cfg(all(esp32, feature = "unstable"))]
     if try_claim_adc2(unsafe { hal::Internal::conjure() }).is_err() {
         panic!(
             "ADC2 is currently in use by esp-hal, but esp-radio requires it for Wi-Fi operation."
@@ -310,22 +297,21 @@ pub(crate) fn init() {
     }
 
     // A minimum clock of 80MHz is required to operate Wi-Fi module.
-    const MIN_CLOCK: Rate = Rate::from_mhz(80);
-    let clocks = Clocks::get();
-    if clocks.cpu_clock < MIN_CLOCK {
+    const MIN_CLOCK: u32 = 80;
+    let cpu_clock = esp_hal::clock::cpu_clock().as_mhz();
+    if cpu_clock < MIN_CLOCK {
         panic!(
             "CPU clock {} MHz is too slow for Wi-Fi operation, minimum required is {} MHz",
-            clocks.cpu_clock.as_mhz(),
-            MIN_CLOCK.as_mhz()
+            cpu_clock, MIN_CLOCK
         );
     }
 
     crate::common_adapter::enable_wifi_power_domain();
 
     wifi_set_log_verbose();
-    init_radio_clocks();
+    radio_clocks::init_radio_clocks();
 
-    #[cfg(coex)]
+    #[cfg(feature = "coex")]
     match crate::wifi::coex_initialize() {
         0 => {}
         error => panic!("Failed to initialize coexistence, error code: {}", error),
@@ -336,7 +322,7 @@ pub(crate) fn init() {
 
 pub(crate) fn deinit() {
     // Disable coexistence
-    #[cfg(coex)]
+    #[cfg(feature = "coex")]
     {
         unsafe { crate::wifi::os_adapter::coex_disable() };
         unsafe { crate::wifi::os_adapter::coex_deinit() };
@@ -347,7 +333,7 @@ pub(crate) fn deinit() {
     #[cfg(feature = "ble")]
     ble::shutdown_ble_isr();
 
-    #[cfg(esp32)]
+    #[cfg(all(esp32, feature = "unstable"))]
     // Allow using `ADC2` again
     release_adc2(unsafe { esp_hal::Internal::conjure() });
 
@@ -357,49 +343,32 @@ pub(crate) fn deinit() {
 /// Management of the global reference count
 /// and conditional hardware initialization/deinitialization.
 #[derive(Debug)]
-pub(crate) struct RadioRefGuard;
+pub(crate) struct RadioRefGuard {
+    _private: PhantomData<()>,
+}
+
+static RADIO_REFCOUNT: Refcount = Refcount::new();
 
 impl RadioRefGuard {
     /// Increments the refcount. If the old count was 0, it performs hardware init.
     /// If hardware init fails, it rolls back the refcount only once.
     fn new() -> Self {
-        RADIO_REFCOUNT.with(|rc| {
-            debug!("Creating RadioRefGuard");
+        debug!("Creating RadioRefGuard");
 
-            if *rc == 0 {
-                init();
-            }
-
-            *rc += 1;
-            RadioRefGuard
-        })
+        RADIO_REFCOUNT.increment(init);
+        RadioRefGuard {
+            _private: PhantomData,
+        }
     }
 }
 
 impl Drop for RadioRefGuard {
     /// Decrements the refcount. If the count drops to 0, it performs hardware de-init.
     fn drop(&mut self) {
-        RADIO_REFCOUNT.with(|rc| {
-            debug!("Dropping RadioRefGuard");
+        debug!("Dropping RadioRefGuard");
 
-            *rc -= 1;
-            if *rc == 0 {
-                deinit();
-            }
-        })
+        RADIO_REFCOUNT.decrement(deinit);
     }
-}
-
-/// Returns true if at least some interrupt levels are disabled.
-#[cfg(any(feature = "wifi", all(feature = "ble", bt_controller = "btdm")))]
-fn is_interrupts_disabled() -> bool {
-    #[cfg(target_arch = "xtensa")]
-    return hal::xtensa_lx::interrupt::get_level() != 0
-        || hal::xtensa_lx::interrupt::get_mask() == 0;
-
-    #[cfg(target_arch = "riscv32")]
-    return !hal::riscv::register::mstatus::read().mie()
-        || !hal::interrupt::RunLevel::current().is_thread();
 }
 
 /// Enable verbose logging within the Wi-Fi driver

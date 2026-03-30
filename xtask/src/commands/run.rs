@@ -34,6 +34,10 @@ pub enum Run {
 // Subcommand Arguments
 
 /// Arguments for running ELFs.
+#[cfg_attr(feature = "mcp", xtask_mcp_macros::mcp_tool(
+    description = "Run all ELFs in a folder using probe-rs",
+    command = "run elfs"
+))]
 #[derive(Debug, Args)]
 pub struct RunElfsArgs {
     /// Which chip to run the tests for.
@@ -204,35 +208,39 @@ pub fn run_examples(
 
     // At this point, chip can never be `None`, so we can safely unwrap it.
     let chip = args.chip.unwrap();
-    let target = args.package.target_triple(&chip)?;
+    let target = args.package.as_package().target_triple(&chip)?;
 
     examples.sort_by_key(|ex| ex.tag());
 
     let console = console::Term::stdout();
+    let interactive = console.is_term();
 
     for example in examples {
         let mut skip = false;
 
         log::info!("Running example '{}'", example.output_file_name());
-        if let Some(description) = example.description() {
-            log::info!(
-                "\n\n{}\n\nPress ENTER to run example, `s` to skip",
-                description.trim()
-            );
-        } else {
-            log::info!("\n\nPress ENTER to run example, `s` to skip");
-        }
 
-        loop {
-            let key = console.read_key();
+        if interactive {
+            if let Some(description) = example.description() {
+                log::info!(
+                    "\n\n{}\n\nPress ENTER to run example, `s` to skip",
+                    description.trim()
+                );
+            } else {
+                log::info!("\n\nPress ENTER to run example, `s` to skip");
+            }
 
-            match key {
-                Ok(console::Key::Enter) => break,
-                Ok(console::Key::Char('s')) => {
-                    skip = true;
-                    break;
+            loop {
+                let key = console.read_key();
+
+                match key {
+                    Ok(console::Key::Enter) => break,
+                    Ok(console::Key::Char('s')) => {
+                        skip = true;
+                        break;
+                    }
+                    _ => (),
                 }
-                _ => (),
             }
         }
 
@@ -251,18 +259,22 @@ pub fn run_examples(
 
             if let Err(error) = result {
                 log::error!("Failed to run example: {}", error);
-                log::info!("Retry or skip? (r/s)");
-                loop {
-                    let key = console.read_key();
+                if interactive {
+                    log::info!("Retry or skip? (r/s)");
+                    loop {
+                        let key = console.read_key();
 
-                    match key {
-                        Ok(console::Key::Char('r')) => break,
-                        Ok(console::Key::Char('s')) => {
-                            skip = true;
-                            break;
+                        match key {
+                            Ok(console::Key::Char('r')) => break,
+                            Ok(console::Key::Char('s')) => {
+                                skip = true;
+                                break;
+                            }
+                            _ => (),
                         }
-                        _ => (),
                     }
+                } else {
+                    return Err(error);
                 }
             } else {
                 break;

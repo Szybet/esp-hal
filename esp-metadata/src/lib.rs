@@ -11,7 +11,12 @@ pub use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use strum::IntoEnumIterator;
 
-use crate::cfg::{PinLimitation, SupportItem, SupportStatus, Value};
+mod support_status;
+
+use crate::{
+    cfg::{SupportItem, Value},
+    support_status::SupportStatusLevel,
+};
 
 macro_rules! include_toml {
     (Config, $file:expr) => {{
@@ -114,6 +119,8 @@ pub enum Chip {
     Esp32c5,
     /// ESP32-C6
     Esp32c6,
+    /// ESP32-C61
+    Esp32c61,
     /// ESP32-H2
     Esp32h2,
     /// ESP32-S2
@@ -174,6 +181,7 @@ impl Chip {
             Chip::Esp32c3 => "Esp32c3",
             Chip::Esp32c5 => "Esp32c5",
             Chip::Esp32c6 => "Esp32c6",
+            Chip::Esp32c61 => "Esp32c61",
             Chip::Esp32h2 => "Esp32h2",
             Chip::Esp32s2 => "Esp32s2",
             Chip::Esp32s3 => "Esp32s3",
@@ -187,6 +195,7 @@ impl Chip {
             Chip::Esp32c3 => "ESP32-C3",
             Chip::Esp32c5 => "ESP32-C5",
             Chip::Esp32c6 => "ESP32-C6",
+            Chip::Esp32c61 => "ESP32-C61",
             Chip::Esp32h2 => "ESP32-H2",
             Chip::Esp32s2 => "ESP32-S2",
             Chip::Esp32s3 => "ESP32-S3",
@@ -291,6 +300,10 @@ pub struct PeripheralDef {
     /// as stable.
     #[serde(default)]
     stable: bool,
+
+    /// Instantiates a clock group for the peripheral.
+    #[serde(default)]
+    clock_group: Option<String>,
 }
 
 impl PeripheralDef {
@@ -307,7 +320,6 @@ struct Device {
     cores: usize,
     trm: String,
 
-    peripherals: Vec<PeripheralDef>,
     symbols: Vec<String>,
 
     // Peripheral driver configuration:
@@ -341,6 +353,7 @@ impl Config {
             Chip::Esp32c3 => include_toml!(Config, "../devices/esp32c3.toml"),
             Chip::Esp32c5 => include_toml!(Config, "../devices/esp32c5.toml"),
             Chip::Esp32c6 => include_toml!(Config, "../devices/esp32c6.toml"),
+            Chip::Esp32c61 => include_toml!(Config, "../devices/esp32c61.toml"),
             Chip::Esp32h2 => include_toml!(Config, "../devices/esp32h2.toml"),
             Chip::Esp32s2 => include_toml!(Config, "../devices/esp32s2.toml"),
             Chip::Esp32s3 => include_toml!(Config, "../devices/esp32s3.toml"),
@@ -356,7 +369,6 @@ impl Config {
                 target: String::new(),
                 cores: 1,
                 trm: String::new(),
-                peripherals: Vec::new(),
                 symbols: Vec::new(),
                 peri_config: PeriConfig::default(),
             },
@@ -368,8 +380,7 @@ impl Config {
         for instance in self.device.peri_config.driver_instances() {
             let (driver, peri) = instance.split_once('.').unwrap();
             ensure!(
-                self.device
-                    .peripherals
+                self.peripherals()
                     .iter()
                     .any(|p| p.name.eq_ignore_ascii_case(peri)),
                 "Driver {driver} marks an implementation for '{peri}' but this peripheral is not defined for '{}'",
@@ -401,7 +412,12 @@ impl Config {
 
     /// The peripherals of the device.
     pub fn peripherals(&self) -> &[PeripheralDef] {
-        &self.device.peripherals
+        self.device
+            .peri_config
+            .soc
+            .as_ref()
+            .map(|props| props.config.peripherals.as_slice())
+            .unwrap_or(&[])
     }
 
     /// User-defined symbols for the device.
@@ -420,7 +436,7 @@ impl Config {
                     Cores::Multi => String::from("multi_core"),
                 },
             ];
-            all.extend(self.device.peripherals.iter().map(|p| p.symbol_name()));
+            all.extend(self.peripherals().iter().map(|p| p.symbol_name()));
             all.extend_from_slice(&self.device.symbols);
             all.extend(
                 self.device
@@ -487,6 +503,10 @@ impl Config {
 
     fn generate_properties(&self) -> TokenStream {
         let chip_name = self.name();
+        let chip_pretty_name = Chip::from_str(&chip_name)
+            .expect("Valid chip name")
+            .pretty_name()
+            .to_string();
 
         // Translate the chip properties into a macro that can be used in esp-hal:
         let arch = self.device.arch.as_ref();
@@ -548,6 +568,21 @@ impl Config {
                 () => { #chip_name };
             }
 
+            /// The pretty name of the chip as `&str`
+            ///
+            /// # Example
+            ///
+            /// ```rust, no_run
+            /// use esp_hal::chip;
+            /// let chip_name = chip_pretty!();
+            #[doc = concat!("assert_eq!(chip_name, ", chip_pretty!(), ")")]
+            /// ```
+            #[macro_export]
+            #[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+            macro_rules! chip_pretty {
+                () => { #chip_pretty_name };
+            }
+
             /// The properties of this chip and its drivers.
             #[macro_export]
             #[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
@@ -602,7 +637,7 @@ impl Config {
 
         let mut stable_peris = vec![];
 
-        for p in self.device.peripherals.iter() {
+        for p in self.peripherals().iter() {
             if p.stable && !stable_peris.contains(&p.name.as_str()) {
                 stable_peris.push(p.name.as_str());
             }
@@ -613,24 +648,7 @@ impl Config {
                 let pin = format_ident!("GPIO{}", gpio.pin);
                 let mut docs = format!("GPIO{} peripheral singleton", gpio.pin);
 
-                let mut limitations = gpio.limitations.clone();
-
-                // Resolve implicit limitations - based on pin alternate functions
-                let implicit: &[(&[&str], PinLimitation)] = &[
-                    (&["MTMS", "MTCK", "MTDO", "MTDI"], PinLimitation::Jtag),
-                    (&["USB_DP", "USB_DM"], PinLimitation::UsbJtag),
-                    (&["U0TXD", "U0RXD"], PinLimitation::BootloaderUart),
-                ];
-
-                for i in 0..6 {
-                    if let Some(func) = gpio.functions.get(i) {
-                        for (pins, limitation) in implicit.iter() {
-                            if pins.contains(&func) {
-                                limitations.push(*limitation);
-                            }
-                        }
-                    }
-                }
+                let limitations = gpio.limitations();
 
                 if !limitations.is_empty() {
                     // Append a marker and an explanation to the short description
@@ -661,7 +679,7 @@ This pin may be available with certain limitations. Check your hardware to make 
             }
         }
 
-        for peri in self.device.peripherals.iter() {
+        for peri in self.peripherals().iter() {
             let hal = format_ident!("{}", peri.name);
             let pac = if peri.is_virtual {
                 format_ident!("virtual")
@@ -823,7 +841,7 @@ pub fn generate_build_script_utils() -> TokenStream {
         let target = config.device.target.as_str();
         let cfgs = config.list_of_cfgs();
         let soc_config = config.device.peri_config.soc.as_ref().unwrap();
-        let memory_regions = soc_config.memory_map.ranges.iter().map(|r| {
+        let memory_regions = soc_config.config.memory_map.ranges.iter().map(|r| {
             let name = r.name.as_str();
             let start = number_hex(r.range.start);
             let end = number_hex(r.range.end);
@@ -844,7 +862,7 @@ pub fn generate_build_script_utils() -> TokenStream {
                     .iter()
                     .map(|pin| {
                         let num = number(pin.pin);
-                        let limitations = pin.limitations.iter().map(|limitation| {
+                        let limitations = pin.limitations().into_iter().map(|limitation| {
                             TokenStream::from_str(
                                 &basic_toml::to_string(&limitation)
                                     .expect("Serializing limitations should be infallible"),
@@ -1292,6 +1310,7 @@ pub fn generate_chip_support_status(output: &mut impl Write) -> std::fmt::Result
     writeln!(output)?;
 
     // Driver support status
+    let mut issues = Vec::new();
     for SupportItem {
         name,
         config_group,
@@ -1306,28 +1325,40 @@ pub fn generate_chip_support_status(output: &mut impl Write) -> std::fmt::Result
             let config = Config::for_chip(&chip);
 
             let status = config.device.peri_config.support_status(config_group);
-            let status_icon = match status {
-                None => " ",
-                Some(status) => status.icon(),
-            };
             // VSCode displays emojis just a bit wider than 2 characters, making this
             // approximation a bit too wide but good enough.
-            let support_cell_width = chip.pretty_name().len() - status.is_some() as usize;
-            write!(output, " {status_icon:support_cell_width$} |")?;
+            let support_cell_width =
+                chip.pretty_name().len() - !status.status.icon().is_empty() as usize;
+            if let Some(issue) = status.issue {
+                write!(output, " [{}][{issue}] [^1] |", status.status.icon())?;
+                issues.push(issue);
+            } else {
+                write!(output, " {:support_cell_width$} |", status.status.icon())?;
+            }
         }
         writeln!(output)?;
     }
 
     writeln!(output)?;
+    SupportStatusLevel::write_legend(output)?;
+    writeln!(output)?;
 
-    // Print legend
-    writeln!(output, " * Empty cell: not available")?;
-    for s in [
-        SupportStatus::NotSupported,
-        SupportStatus::Partial,
-        SupportStatus::Supported,
-    ] {
-        writeln!(output, " * {}: {}", s.icon(), s.status())?;
+    // Print issue link definitions
+    issues.sort();
+    issues.dedup();
+
+    if !issues.is_empty() {
+        writeln!(
+            output,
+            "[^1]: This cell is clickable and will open the peripheral's issue on GitHub"
+        )?;
+        writeln!(output)?;
+    }
+    for issue in issues {
+        writeln!(
+            output,
+            "[{issue}]: https://github.com/esp-rs/esp-hal/issues/{issue}"
+        )?;
     }
 
     Ok(())

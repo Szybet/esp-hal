@@ -5,14 +5,7 @@
 //! # Bare-metal (`no_std`) HAL for all Espressif ESP32 devices.
 //!
 //! This documentation is built for the
-#![cfg_attr(esp32, doc = "**ESP32**")]
-#![cfg_attr(esp32s2, doc = "**ESP32-S2**")]
-#![cfg_attr(esp32s3, doc = "**ESP32-S3**")]
-#![cfg_attr(esp32c2, doc = "**ESP32-C2**")]
-#![cfg_attr(esp32c3, doc = "**ESP32-C3**")]
-#![cfg_attr(esp32c5, doc = "**ESP32-C5**")]
-#![cfg_attr(esp32c6, doc = "**ESP32-C6**")]
-#![cfg_attr(esp32h2, doc = "**ESP32-H2**")]
+#![doc = concat!("**", chip_pretty!(), "**")]
 //! . Please ensure you are reading the correct [documentation] for your target
 //! device.
 //!
@@ -108,46 +101,52 @@ let mut i2c = I2c::new(peripherals.I2C0, /* ... */);
 //! cargo install esp-generate
 //! esp-generate --chip=esp32c6 your-project
 //! ```
-//!
-//! ## Blinky
-//!
-//! Some minimal code to blink an LED looks like this:
-//!
-//! ```rust, no_run
-//! #![no_std]
-//! #![no_main]
-//!
-//! use esp_hal::{
-//!     clock::CpuClock,
-//!     gpio::{Io, Level, Output, OutputConfig},
-//!     main,
-//!     time::{Duration, Instant},
-//! };
-//!
-//! // You need a panic handler. Usually, you would use esp_backtrace, panic-probe, or
-//! // something similar, but you can also bring your own like this:
-//! #[panic_handler]
-//! fn panic(_: &core::panic::PanicInfo) -> ! {
-//!     esp_hal::system::software_reset()
-//! }
-//!
-//! #[main]
-//! fn main() -> ! {
-//!     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-//!     let peripherals = esp_hal::init(config);
-//!
-//!     // Set GPIO0 as an output, and set its state high initially.
-//!     let mut led = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
-//!
-//!     loop {
-//!         led.toggle();
-//!         // Wait for half a second
-//!         let delay_start = Instant::now();
-//!         while delay_start.elapsed() < Duration::from_millis(500) {}
-//!     }
-//! }
-//! ```
-//!
+#![cfg_attr(
+    // Feature-gated so that this doesn't prevent gradual device bringup. Any
+    // stable driver would serve the purpose here, so this block will be part
+    // of the released documentation.
+    gpio_driver_supported,
+    doc = r#"
+## Blinky
+
+Some minimal code to blink an LED looks like this:
+
+```rust, no_run
+#![no_std]
+#![no_main]
+
+use esp_hal::{
+    clock::CpuClock,
+    gpio::{Io, Level, Output, OutputConfig},
+    main,
+    time::{Duration, Instant},
+};
+
+// You need a panic handler. Usually, you would use esp_backtrace, panic-probe, or
+// something similar, but you can also bring your own like this:
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! {
+    esp_hal::system::software_reset()
+}
+
+#[main]
+fn main() -> ! {
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let peripherals = esp_hal::init(config);
+
+    // Set GPIO0 as an output, and set its state high initially.
+    let mut led = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
+
+    loop {
+        led.toggle();
+        // Wait for half a second
+        let delay_start = Instant::now();
+        while delay_start.elapsed() < Duration::from_millis(500) {}
+    }
+}
+```
+"#
+)]
 //! ## Additional configuration
 //!
 //! We've exposed some configuration options that don't fit into cargo
@@ -282,6 +281,7 @@ use core::marker::PhantomData;
 
 pub use esp_metadata_generated::chip;
 use esp_rom_sys as _;
+#[cfg_attr(esp32c61, allow(unused))]
 pub(crate) use unstable_driver;
 pub(crate) use unstable_module;
 
@@ -316,9 +316,11 @@ pub mod peripherals;
     any(ecc_driver_supported, hmac_driver_supported, sha_driver_supported)
 ))]
 mod reg_access;
+#[cfg(rng_driver_supported)]
+pub mod rng;
 #[cfg(any(spi_master_driver_supported, spi_slave_driver_supported))]
 pub mod spi;
-#[cfg_attr(esp32c5, allow(dead_code))]
+#[cfg_attr(any(esp32c5, esp32c61), allow(dead_code))]
 pub mod system;
 pub mod time;
 #[cfg(uart_driver_supported)]
@@ -346,10 +348,12 @@ unstable_reexport! {
 #[cfg(all(feature = "rt", feature = "exception-handler"))]
 mod exception_handler;
 
+pub mod efuse;
+pub mod interrupt;
+
 unstable_module! {
     pub mod asynch;
     pub mod debugger;
-    pub mod interrupt;
     pub mod rom;
     #[doc(hidden)]
     pub mod sync;
@@ -368,10 +372,14 @@ unstable_module! {
     pub mod otg_fs;
     #[cfg(psram)] // DMA needs some things from here
     pub mod psram;
-    pub mod efuse;
 }
 
-#[cfg(any(sha_driver_supported, rsa_driver_supported, aes_driver_supported))]
+#[cfg(any(
+    sha_driver_supported,
+    rsa_driver_supported,
+    aes_driver_supported,
+    ecc_driver_supported
+))]
 mod work_queue;
 
 unstable_driver! {
@@ -398,8 +406,6 @@ unstable_driver! {
     pub mod pcnt;
     #[cfg(rmt_driver_supported)]
     pub mod rmt;
-    #[cfg(rng_driver_supported)]
-    pub mod rng;
     #[cfg(rsa_driver_supported)]
     pub mod rsa;
     #[cfg(sha_driver_supported)]
@@ -431,6 +437,36 @@ pub mod trapframe {
 // be directly exposed.
 mod soc;
 
+// Some PAC-related utility
+use crate::pac::generic::{Readable, Reg, Resettable, W, Writable};
+
+#[cfg_attr(esp32c61, expect(dead_code))]
+trait RegisterToggle {
+    type Reg: Readable + Resettable + Writable;
+
+    /// Toggles bits in the register, applying the given operation to set and clear them.
+    ///
+    /// This method is more efficient than two modify calls, as it will not read the register
+    /// value twice.
+    fn toggle(&self, op: impl Fn(&mut W<Self::Reg>, bool) -> &mut W<Self::Reg>);
+}
+
+impl<REG> RegisterToggle for Reg<REG>
+where
+    REG: Readable + Resettable + Writable,
+{
+    type Reg = REG;
+
+    fn toggle(&self, op: impl Fn(&mut W<REG>, bool) -> &mut W<REG>) {
+        let bits = self.modify(|_, w| op(w, true));
+
+        self.write(|w| {
+            unsafe { w.bits(bits) };
+            op(w, false)
+        });
+    }
+}
+
 #[cfg(is_debug_build)]
 procmacros::warning! {"
 WARNING: use --release
@@ -456,19 +492,24 @@ pub trait DriverMode: crate::private::Sealed {}
 ///
 /// [`Async`] drivers can be converted to a [`Blocking`] driver using the
 /// `into_blocking` method, for example:
-///
-/// ```rust, no_run
-/// # {before_snippet}
-/// # use esp_hal::uart::{Config, Uart};
-/// let uart = Uart::new(peripherals.UART0, Config::default())?
-///     .with_rx(peripherals.GPIO1)
-///     .with_tx(peripherals.GPIO2)
-///     .into_async();
-///
-/// let blocking_uart = uart.into_blocking();
-///
-/// # {after_snippet}
-/// ```
+#[cfg_attr(
+    // Feature-gated so that this doesn't prevent gradual device bringup. Any
+    // stable driver would serve the purpose here, so this block will be part
+    // of the released documentation.
+    all(uart_driver_supported, gpio_driver_supported),
+    doc = r#"
+```rust, no_run
+# {before_snippet}
+# use esp_hal::uart::{Config, Uart};
+let uart = Uart::new(peripherals.UART0, Config::default())?
+    .with_rx(peripherals.GPIO1)
+    .with_tx(peripherals.GPIO2)
+    .into_async();
+let blocking_uart = uart.into_blocking();
+# {after_snippet}
+```
+"#
+)]
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct Blocking;
@@ -479,18 +520,24 @@ pub struct Blocking;
 /// Drivers are constructed in blocking mode by default. To set up an async
 /// driver, a [`Blocking`] driver must be converted to an `Async` driver using
 /// the `into_async` method, for example:
+#[cfg_attr(
+    // Feature-gated so that this doesn't prevent gradual device bringup. Any
+    // stable driver would serve the purpose here, so this block will be part
+    // of the released documentation.
+    all(uart_driver_supported, gpio_driver_supported),
+    doc = r#"
+```rust, no_run
+# {before_snippet}
+# use esp_hal::uart::{Config, Uart};
+let uart = Uart::new(peripherals.UART0, Config::default())?
+    .with_rx(peripherals.GPIO1)
+    .with_tx(peripherals.GPIO2)
+    .into_async();
 ///
-/// ```rust, no_run
-/// # {before_snippet}
-/// # use esp_hal::uart::{Config, Uart};
-/// let uart = Uart::new(peripherals.UART0, Config::default())?
-///     .with_rx(peripherals.GPIO1)
-///     .with_tx(peripherals.GPIO2)
-///     .into_async();
-///
-/// # {after_snippet}
-/// ```
-///
+# {after_snippet}
+```
+"#
+)]
 /// Drivers can be converted back to blocking mode using the `into_blocking`
 /// method, see [`Blocking`] documentation for more details.
 ///
@@ -553,6 +600,7 @@ pub(crate) mod private {
     }
 
     pub(crate) struct OnDrop<F: FnOnce()>(ManuallyDrop<F>);
+    #[cfg_attr(esp32c61, expect(unused))] // TODO: remove when more peripherals are supported
     impl<F: FnOnce()> OnDrop<F> {
         pub fn new(cb: F) -> Self {
             Self(ManuallyDrop::new(cb))
@@ -759,6 +807,7 @@ pub fn init(config: Config) -> Peripherals {
         }
     }
 
+    crate::soc::ensure_stack_pointer_in_range();
     #[cfg(stack_guard_monitoring)]
     crate::soc::enable_main_stack_guard_monitoring();
 

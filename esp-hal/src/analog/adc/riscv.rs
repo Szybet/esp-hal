@@ -20,8 +20,8 @@ use procmacros::handler;
 
 pub use self::calibration::*;
 use super::{AdcCalSource, AdcConfig, Attenuation};
-#[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2))]
-use crate::efuse::{AdcCalibUnit, Efuse};
+#[cfg(any(esp32c2, esp32c3, esp32c5, esp32c6, esp32h2))]
+use crate::efuse::AdcCalibUnit;
 use crate::{
     Async,
     Blocking,
@@ -52,6 +52,8 @@ cfg_if::cfg_if! {
 cfg_if::cfg_if! {
     if #[cfg(esp32c6)] {
         pub(super) const NUM_ATTENS: usize = 7;
+    } else if #[cfg(esp32c5)] {
+        pub(super) const NUM_ATTENS: usize = 6;
     } else {
         pub(super) const NUM_ATTENS: usize = 5;
     }
@@ -174,7 +176,7 @@ impl RegisterAccess for crate::peripherals::ADC1<'_> {
     // Currently #[cfg] covers all supported RISC-V devices,
     // but, for example, esp32p4 uses the value 4 instead of 1,
     // so it is not standard across all RISC-V devices.
-    #[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2))]
+    #[cfg(any(esp32c2, esp32c3, esp32c5, esp32c6, esp32h2))]
     fn calibration_init() {
         // e.g.
         // https://github.com/espressif/esp-idf/blob/800f141f94c0f880c162de476512e183df671307/components/hal/esp32c3/include/hal/adc_ll.h#L702
@@ -430,30 +432,35 @@ impl<ADCI> InterruptConfigurable for Adc<'_, ADCI, Blocking> {
 #[cfg(adc_adc1)]
 impl super::AdcCalEfuse for crate::peripherals::ADC1<'_> {
     fn init_code(atten: Attenuation) -> Option<u16> {
-        Efuse::rtc_calib_init_code(AdcCalibUnit::ADC1, atten)
+        crate::efuse::rtc_calib_init_code(AdcCalibUnit::ADC1, atten)
     }
 
     fn cal_mv(atten: Attenuation) -> u16 {
-        Efuse::rtc_calib_cal_mv(AdcCalibUnit::ADC1, atten)
+        crate::efuse::rtc_calib_cal_mv(AdcCalibUnit::ADC1, atten)
     }
 
     fn cal_code(atten: Attenuation) -> Option<u16> {
-        Efuse::rtc_calib_cal_code(AdcCalibUnit::ADC1, atten)
+        crate::efuse::rtc_calib_cal_code(AdcCalibUnit::ADC1, atten)
+    }
+
+    #[cfg(esp32c5)]
+    fn cal_chan_compens(atten: Attenuation, channel: u16) -> Option<i32> {
+        crate::efuse::rtc_calib_get_chan_compens(AdcCalibUnit::ADC1, channel, atten)
     }
 }
 
 #[cfg(adc_adc2)]
 impl super::AdcCalEfuse for crate::peripherals::ADC2<'_> {
     fn init_code(atten: Attenuation) -> Option<u16> {
-        Efuse::rtc_calib_init_code(AdcCalibUnit::ADC2, atten)
+        crate::efuse::rtc_calib_init_code(AdcCalibUnit::ADC2, atten)
     }
 
     fn cal_mv(atten: Attenuation) -> u16 {
-        Efuse::rtc_calib_cal_mv(AdcCalibUnit::ADC2, atten)
+        crate::efuse::rtc_calib_cal_mv(AdcCalibUnit::ADC2, atten)
     }
 
     fn cal_code(atten: Attenuation) -> Option<u16> {
-        Efuse::rtc_calib_cal_code(AdcCalibUnit::ADC2, atten)
+        crate::efuse::rtc_calib_cal_code(AdcCalibUnit::ADC2, atten)
     }
 }
 

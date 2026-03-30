@@ -1,7 +1,7 @@
 //! Check that trying to send after drop doesn't crash
 
 //% FEATURES: esp-radio esp-radio/wifi esp-radio/unstable esp-hal/unstable
-//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32s2 esp32s3
+//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32s2 esp32s3
 
 #![no_std]
 #![no_main]
@@ -16,7 +16,7 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::println;
-use esp_radio::wifi::{Config, sta::StationConfig};
+use esp_radio::wifi::{Config, ControllerConfig, sta::StationConfig};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -39,20 +39,23 @@ async fn main(_spawner: Spawner) {
 
     let mut wifi = peripherals.WIFI;
     {
-        let (mut controller, interfaces) =
-            esp_radio::wifi::new(wifi.reborrow(), Default::default()).unwrap();
+        let station_config = Config::Station(
+            StationConfig::default()
+                .with_ssid(SSID)
+                .with_password(PASSWORD.into()),
+        );
+
+        let (mut controller, interfaces) = esp_radio::wifi::new(
+            wifi.reborrow(),
+            ControllerConfig::default().with_initial_config(station_config),
+        )
+        .unwrap();
 
         let mut wifi_interface = interfaces.station;
 
         let token = wifi_interface.transmit();
         assert!(matches!(token, None));
 
-        let station_config = Config::Station(
-            StationConfig::default()
-                .with_ssid(SSID)
-                .with_password(PASSWORD.into()),
-        );
-        controller.set_config(&station_config).unwrap();
         controller.connect_async().await.unwrap();
 
         let token = wifi_interface.transmit();
@@ -73,15 +76,17 @@ async fn main(_spawner: Spawner) {
     }
 
     {
-        let (mut controller, interfaces) =
-            esp_radio::wifi::new(wifi.reborrow(), Default::default()).unwrap();
-
         let station_config = Config::Station(
             StationConfig::default()
                 .with_ssid(SSID)
                 .with_password(PASSWORD.into()),
         );
-        controller.set_config(&station_config).unwrap();
+
+        let (mut controller, interfaces) = esp_radio::wifi::new(
+            wifi.reborrow(),
+            ControllerConfig::default().with_initial_config(station_config),
+        )
+        .unwrap();
         controller.connect_async().await.unwrap();
 
         let mut wifi_interface = interfaces.station;

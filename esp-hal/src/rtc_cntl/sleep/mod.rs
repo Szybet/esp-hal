@@ -208,12 +208,12 @@ impl<'a, 'b> Ext1WakeupSource<'a, 'b> {
 
 #[procmacros::doc_replace(
     "pin_low" => {
-        cfg(esp32c6) => "let mut pin_low = peripherals.GPIO2;",
-        cfg(esp32h2) => "let mut pin_low = peripherals.GPIO9;"
+        cfg(esp32c6) => "GPIO2",
+        cfg(esp32h2) => "GPIO9",
     },
     "pin_high" => {
-        cfg(esp32c6) => "let mut pin_high = peripherals.GPIO3;",
-        cfg(esp32h2) => "let mut pin_high = peripherals.GPIO10;"
+        cfg(esp32c6) => "GPIO3",
+        cfg(esp32h2) => "GPIO10"
     },
 )]
 /// External wake-up source (Ext1).
@@ -224,14 +224,12 @@ impl<'a, 'b> Ext1WakeupSource<'a, 'b> {
 /// # use esp_hal::rtc_cntl::{reset_reason, sleep::{Ext1WakeupSource, TimerWakeupSource, WakeupLevel}, wakeup_cause, Rtc, SocResetReason};
 /// # use esp_hal::system::Cpu;
 /// # use esp_hal::gpio::{Input, InputConfig, Pull, RtcPinWithResistors};
-///
+/// #
 /// let delay = Delay::new();
 /// let mut rtc = Rtc::new(peripherals.LPWR);
 ///
 /// let config = InputConfig::default().with_pull(Pull::None);
-/// # {pin_low}
-/// # {pin_high}
-/// let mut pin_low_input = Input::new(pin_low.reborrow(), config);
+/// let mut pin_low_input = Input::new(peripherals.__pin_low__.reborrow(), config);
 ///
 /// let reason = reset_reason(Cpu::ProCpu);
 /// let wake_reason = wakeup_cause();
@@ -244,8 +242,8 @@ impl<'a, 'b> Ext1WakeupSource<'a, 'b> {
 ///
 /// let wakeup_pins: &mut [(&mut dyn RtcPinWithResistors, WakeupLevel)] =
 /// &mut [
-///     (&mut pin_low, WakeupLevel::Low),
-///     (&mut pin_high, WakeupLevel::High),
+///     (&mut peripherals.__pin_low__, WakeupLevel::Low),
+///     (&mut peripherals.__pin_high__, WakeupLevel::High),
 /// ];
 ///
 /// let ext1 = Ext1WakeupSource::new(wakeup_pins);
@@ -273,16 +271,16 @@ impl<'a, 'b> Ext1WakeupSource<'a, 'b> {
 
 #[procmacros::doc_replace(
     "pin0" => {
-        cfg(any(esp32c3, esp32c2)) => "let mut pin_0 = peripherals.GPIO2;",
-        cfg(any(esp32s2, esp32s3)) => "let mut pin_0 = peripherals.GPIO17;"
+        cfg(any(esp32c3, esp32c2)) => "GPIO2",
+        cfg(any(esp32s2, esp32s3)) => "GPIO17"
     },
     "pin1" => {
-        cfg(any(esp32c3, esp32c2)) => "let mut pin_1 = peripherals.GPIO3;",
-        cfg(any(esp32s2, esp32s3)) => "let mut pin_1 = peripherals.GPIO18;"
+        cfg(any(esp32c3, esp32c2)) => "GPIO3",
+        cfg(any(esp32s2, esp32s3)) => "GPIO18"
     },
-    "wakeup_pins" => {
-        cfg(any(esp32c3, esp32c2)) => "let wakeup_pins: &mut [(&mut dyn gpio::RtcPinWithResistors, WakeupLevel)] = \n\t&mut [(&mut pin_0, WakeupLevel::Low),(&mut pin_1, WakeupLevel::High)];",
-        cfg(any(esp32s2, esp32s3)) => "let wakeup_pins: &mut [(&mut dyn gpio::RtcPin, WakeupLevel)] = \n\t&mut [(&mut pin_0, WakeupLevel::Low),(&mut pin_1, WakeupLevel::High)];"
+    "rtc_pin_trait" => {
+        cfg(any(esp32c3, esp32c2)) => "gpio::RtcPinWithResistors",
+        cfg(any(esp32s2, esp32s3)) => "gpio::RtcPin"
     },
 )]
 /// RTC_IO wakeup source
@@ -311,9 +309,10 @@ impl<'a, 'b> Ext1WakeupSource<'a, 'b> {
 ///
 /// let delay = Delay::new();
 /// let timer = TimerWakeupSource::new(Duration::from_secs(10));
-/// # {pin0}
-/// # {pin1}
-/// # {wakeup_pins}
+/// let wakeup_pins: &mut [(&mut dyn __rtc_pin_trait__, WakeupLevel)] = &mut [
+///     (&mut peripherals.__pin0__, WakeupLevel::Low),
+///     (&mut peripherals.__pin1__, WakeupLevel::High),
+/// ];
 ///
 /// let rtcio = RtcioWakeupSource::new(wakeup_pins);
 /// delay.delay_millis(100);
@@ -353,6 +352,76 @@ impl WakeFromLpCoreWakeupSource {
 
 #[cfg(esp32c6)]
 impl Default for WakeFromLpCoreWakeupSource {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// ULP wakeup source
+///
+/// Wake up from ULP software interrupt, and/or ULP-RISCV Trap condition.
+/// Both of these triggers are enabled by default.
+/// This source will clear any outstanding software interrupts prior to entering sleep, by default.
+///
+/// S2 supports the following triggers (Refer to ESP32-S2 Technical Reference Manual, Table 9.4-3.
+/// Wakeup Source)
+///  - ULP-FSM software interrupt (unsure if this ALSO supports ULP-RISCV software interrupt)
+///  - ULP-RISCV Trap
+///
+/// S3 supports the following triggers (Refer to ESP32-S3 Technical Reference Manual, Table 10.4-3.
+/// Wakeup Source)
+///  - ULP-FSM software interrupt and ULP-RISCV software interrupt
+///  - ULP-RISCV Trap
+///
+/// This wakeup source can be used to wake up from both light and deep sleep.
+#[cfg(any(esp32s2, esp32s3))]
+pub struct UlpWakeupSource {
+    wake_on_interrupt: bool,
+    wake_on_trap: bool,
+    clear_interrupts_on_sleep: bool,
+}
+
+#[cfg(any(esp32s2, esp32s3))]
+impl UlpWakeupSource {
+    /// Create a new instance of `WakeFromUlpWakeupSource`
+    pub const fn new() -> Self {
+        Self {
+            wake_on_interrupt: true,
+            wake_on_trap: true,
+            clear_interrupts_on_sleep: true,
+        }
+    }
+
+    /// Enable wakeup triggered by software interrupt from ULP-FSM or ULP-RISCV
+    pub fn set_wake_on_interrupt(mut self, value: bool) -> Self {
+        self.wake_on_interrupt = value;
+        self
+    }
+
+    /// Enable wakeup triggered by ULP-RISCV Trap
+    pub fn set_wake_on_trap(mut self, value: bool) -> Self {
+        self.wake_on_trap = value;
+        self
+    }
+
+    /// Enable clearing of latched wake-up interrupts prior to entering sleep
+    pub fn set_clear_interrupts_on_sleep(mut self, value: bool) -> Self {
+        self.clear_interrupts_on_sleep = value;
+        self
+    }
+
+    /// Clears the wake-up interrupts
+    pub fn clear_interrupts(&self) {
+        crate::peripherals::LPWR::regs().int_clr().write(|w| {
+            w.cocpu_trap().clear_bit_by_one();
+            w.cocpu().clear_bit_by_one();
+            w.ulp_cp().clear_bit_by_one()
+        });
+    }
+}
+
+#[cfg(any(esp32s2, esp32s3))]
+impl Default for UlpWakeupSource {
     fn default() -> Self {
         Self::new()
     }
@@ -478,13 +547,15 @@ bitfield::bitfield! {
     pub uart1, set_uart1: 7;
     /// Touch wakeup
     pub touch, set_touch: 8;
-    /// ULP-FSM wakeup
+    /// ULP-FSM or ULP-RISCV wakeup
     pub ulp, set_ulp: 11;
+    /// ULP-RISCV trap wakeup
+    pub ulp_riscv_trap, set_ulp_riscv_trap: 13;
     /// USB wakeup
     pub usb, set_usb: 15;
 }
 
-#[cfg(any(esp32, esp32c2, esp32c3, esp32s3))]
+#[cfg(esp32s3)]
 bitfield::bitfield! {
     /// Represents the wakeup triggers.
     #[derive(Default, Clone, Copy)]
@@ -508,7 +579,41 @@ bitfield::bitfield! {
     pub uart1, set_uart1: 7;
     /// Touch wakeup
     pub touch, set_touch: 8;
-    /// ULP wakeup
+    /// ULP-FSM wakeup
+    pub ulp_fsm, set_ulp_fsm: 9;
+    /// BT wakeup (light sleep only)
+    pub bt, set_bt: 10;
+    /// ULP-RISCV wakeup
+    pub ulp_riscv, set_ulp_riscv: 11;
+    /// ULP-RISCV trap wakeup
+    pub ulp_riscv_trap, set_ulp_riscv_trap: 13;
+}
+
+#[cfg(any(esp32, esp32c2, esp32c3))]
+bitfield::bitfield! {
+    /// Represents the wakeup triggers.
+    #[derive(Default, Clone, Copy)]
+    pub struct WakeTriggers(u16);
+    impl Debug;
+    /// EXT0 GPIO wakeup
+    pub ext0, set_ext0: 0;
+    /// EXT1 GPIO wakeup
+    pub ext1, set_ext1: 1;
+    /// GPIO wakeup (light sleep only)
+    pub gpio, set_gpio: 2;
+    /// Timer wakeup
+    pub timer, set_timer: 3;
+    /// SDIO wakeup (light sleep only)
+    pub sdio, set_sdio: 4;
+    /// MAC wakeup (light sleep only)
+    pub mac, set_mac: 5;
+    /// UART0 wakeup (light sleep only)
+    pub uart0, set_uart0: 6;
+    /// UART1 wakeup (light sleep only)
+    pub uart1, set_uart1: 7;
+    /// Touch wakeup
+    pub touch, set_touch: 8;
+    /// ULP-FSM wakeup
     pub ulp, set_ulp: 9;
     /// BT wakeup (light sleep only)
     pub bt, set_bt: 10;

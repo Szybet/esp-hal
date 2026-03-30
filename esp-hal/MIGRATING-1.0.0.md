@@ -128,3 +128,37 @@ On RISC-V MCUs, the `interrupt::enable_direct` function now takes a `DirectBinda
 ```
 
 `DirectBindableCpuInterrupt` is numbered from 0, and corresponds to CPU interrupt numbers that are not disabled or reserved for vectoring.
+
+## ECC changes
+
+- The `Ecc::new` constructor now takes a configuration parameter.
+- All `Ecc` methods now expect little endian input, and produce little endian output.
+- `Ecc` methods now return a result handle instead of writing data back directly. These handles can be used to retrieve the result of the operation. Modular arithmetic methods now take the modulus as an argument.
+
+```diff
+-let mut ecc = Ecc::new(peripherals.ECC);
++let mut ecc = Ecc::new(peripherals.ECC, Config::default());
+-ecc.mod_operations(EllipticCurve::P256, &mut a, &mut b, WorkMode::ModAdd).unwrap();
++let result = ecc.modular_addition(EllipticCurve::P256, EccModBase::OrderOfCurve, &a, &b).unwrap();
++result.read_scalar_result(&mut a).unwrap();
+```
+
+The method that performs the operation now only returns an error if the parameters are of incorrect
+length. Point verification errors are now returned by the result handle. If a particular operation
+only does point verification and does not perform any other operations, the verification result
+can be read using the `success` method.
+
+## eFuse Changes
+
+The `Efuse` struct has been removed. All methods are now free-standing functions
+in the `efuse` module. Some functions have been renamed:
+
+- `Efuse::mac_address()` → `efuse::base_mac_address()`
+- `Efuse::set_mac_address(mac)` → `efuse::override_mac_address(mac)`
+- `Efuse::interface_mac_address(kind)` → `efuse::interface_mac_address(kind)`
+- `Efuse::read_field_le(field)` → `efuse::read_field_le(field)`
+- `Efuse::read_bit(field)` → `efuse::read_bit(field)`
+- `Efuse::chip_revision()` → `efuse::chip_revision()`
+
+`Efuse::read_base_mac_address()` has been removed; use `efuse::base_mac_address()` instead.
+`MacAddress::as_bytes_mut()` has been removed; use `MacAddress::as_bytes()` for read access.

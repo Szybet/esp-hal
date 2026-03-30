@@ -1,6 +1,6 @@
 //! GPIO Test
 
-//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32h2 esp32s2 esp32s3
+//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32h2 esp32s2 esp32s3
 //% FEATURES(unstable): unstable embassy
 //% FEATURES(stable):
 
@@ -541,7 +541,7 @@ mod tests {
 
         let spawner = interrupt_executor.start(Priority::max());
 
-        spawner.must_spawn(test_task(ctx.test_gpio1.degrade()));
+        spawner.spawn(test_task(ctx.test_gpio1.degrade()).unwrap());
 
         #[embassy_executor::task]
         async fn test_task(pin: AnyPin<'static>) {
@@ -620,7 +620,7 @@ mod tests {
             move || {
                 let executor = mk_static!(Executor, Executor::new());
                 executor.run(|spawner| {
-                    spawner.must_spawn(edge_counter_task(in_pin, input_pin_listening));
+                    spawner.spawn(edge_counter_task(in_pin, input_pin_listening).unwrap());
                 });
             },
         );

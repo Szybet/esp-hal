@@ -1,4 +1,5 @@
 pub(crate) mod aes;
+pub(crate) mod ecc;
 pub(crate) mod gpio;
 pub(crate) mod i2c_master;
 pub(crate) mod interrupt;
@@ -12,6 +13,7 @@ pub(crate) mod timergroup;
 pub(crate) mod uart;
 
 pub(crate) use aes::*;
+pub(crate) use ecc::*;
 pub(crate) use gpio::*;
 pub(crate) use i2c_master::*;
 pub(crate) use interrupt::*;
@@ -22,6 +24,8 @@ pub(crate) use spi_master::*;
 pub(crate) use spi_slave::*;
 pub(crate) use timergroup::*;
 pub(crate) use uart::*;
+
+use crate::support_status::{SupportStatus, SupportStatusLevel};
 
 pub(crate) trait GenericProperty {
     fn cfgs(&self) -> Option<Vec<String>> {
@@ -80,33 +84,6 @@ impl From<Option<u32>> for Value {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum SupportStatus {
-    NotSupported,
-    #[default] // Just the common option to reduce visual noise of "declare only" drivers.
-    Partial,
-    Supported,
-}
-
-impl SupportStatus {
-    pub fn icon(self) -> &'static str {
-        match self {
-            SupportStatus::NotSupported => "❌",
-            SupportStatus::Partial => "⚒️",
-            SupportStatus::Supported => "✔️",
-        }
-    }
-
-    pub fn status(self) -> &'static str {
-        match self {
-            SupportStatus::NotSupported => "Not supported",
-            SupportStatus::Partial => "Partial support",
-            SupportStatus::Supported => "Supported",
-        }
-    }
-}
-
 /// An empty configuration, used when a driver just wants to declare that
 /// it supports a peripheral, but does not have any configuration options.
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
@@ -161,7 +138,9 @@ macro_rules! driver_configs {
         #[derive(Debug, Clone, serde::Deserialize)]
         pub(crate) struct $struct {
             #[serde(default)]
+            #[serde(deserialize_with = "crate::support_status::string_or_struct")]
             pub support_status: SupportStatus,
+
             // The list of peripherals for which this driver is implemented.
             // If empty, the driver supports a single instance only.
             #[serde(default)]
@@ -237,8 +216,8 @@ macro_rules! driver_configs {
             pub fn driver_names(&self) -> impl Iterator<Item = &str> {
                 [$(
                     self.$driver.as_ref().and_then(|d| {
-                        match d.support_status {
-                            SupportStatus::NotSupported => None,
+                        match d.support_status.status {
+                            SupportStatusLevel::NotAvailable | SupportStatusLevel::NotSupported => None,
                             _ => Some(stringify!($driver)),
                         }
                     }),
@@ -277,11 +256,12 @@ macro_rules! driver_configs {
             }
 
             /// Returns the support status of a peripheral by its name.
-            pub fn support_status(&self, driver: &str) -> Option<SupportStatus> {
-                match driver {
+            pub fn support_status(&self, driver: &str) -> SupportStatus {
+                let maybe_status = match driver {
                     $(stringify!($driver) => self.$driver.as_ref().map(|p| p.support_status),)*
-                    _ => None, // If the peripheral is not found, return None.
-                }
+                    _ => None,
+                };
+                maybe_status.unwrap_or(SupportStatus { status: SupportStatusLevel::NotAvailable, issue: None })
             }
         }
     };
@@ -378,9 +358,16 @@ driver_configs![
         driver: ecc,
         name: "ECC",
         properties: {
-            working_modes: u32, // TODO: list instead of count
             #[serde(default)]
             zero_extend_writes: bool,
+            #[serde(default)]
+            separate_jacobian_point_memory: bool, // Qx, Qy, Qz memory blocks
+            #[serde(default)]
+            has_memory_clock_gate: bool, // ECC_MULT_MEM_CLOCK_GATE_FORCE_ON
+            #[serde(default)]
+            supports_enhanced_security: bool, // ECC_MULT_SECURITY_MODE
+            #[serde(flatten)]
+            extras: EccDriverProperties,
         }
     },
     EthernetProperties {
@@ -636,9 +623,8 @@ driver_configs![
             cpu_csr_prv_mode: Option<u32>,
             #[serde(default)]
             rc_fast_clk_default: Option<u32>,
-            #[serde(default)]
-            clocks: DeviceClocks,
-            memory_map: MemoryMap,
+            #[serde(flatten)]
+            config: SocConfig,
         }
     },
     SpiMasterProperties<SpiMasterInstanceConfig> {
@@ -706,6 +692,9 @@ driver_configs![
             ram_size: u32,
             #[serde(default)]
             peripheral_controls_mem_clk: bool,
+            // Whether the MCU has a CLK_CONF register _in_ the UART peripheral.
+            #[serde(default)]
+            has_sclk_divider: bool,
         }
     },
     UhciProperties {

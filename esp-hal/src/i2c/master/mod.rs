@@ -135,7 +135,7 @@ use crate::{
         OutputSignal,
         PinGuard,
         Pull,
-        interconnect::{self, PeripheralOutput},
+        interconnect::{self, PeripheralInput, PeripheralOutput},
     },
     handler,
     interrupt::InterruptHandler,
@@ -717,7 +717,7 @@ impl<'d> I2c<'d, Blocking> {
         let sda_pin = PinGuard::new_unconnected();
         let scl_pin = PinGuard::new_unconnected();
 
-        let mut i2c = I2c {
+        let i2c = I2c {
             i2c: i2c.degrade(),
             phantom: PhantomData,
             guard,
@@ -727,6 +727,10 @@ impl<'d> I2c<'d, Blocking> {
                 scl_pin,
             },
         };
+
+        // Make sure inputs are well-defined.
+        let i2c = i2c.with_scl(crate::gpio::Level::High);
+        let mut i2c = i2c.with_sda(crate::gpio::Level::High);
 
         i2c.apply_config(&config)?;
 
@@ -950,7 +954,7 @@ impl<'d> I2c<'d, Async> {
     /// See the [`Blocking`] documentation for an example on how to use this
     /// method.
     pub fn into_blocking(self) -> I2c<'d, Blocking> {
-        self.i2c.disable_peri_interrupt();
+        self.i2c.disable_peri_interrupt_on_all_cores();
 
         I2c {
             i2c: self.i2c,
@@ -1143,10 +1147,50 @@ where
         self.driver().reset_fsm(*error == Error::Timeout)
     }
 
+    #[procmacros::doc_replace]
     /// Connect a pin to the I2C SDA signal.
     ///
+    /// If this function is called with a pin singleton (e.g. `GPIO2`), the pin will be configured
+    /// to use the internal pull-up resistor. If this is undesired, call this function with a fully
+    /// configured [`Flex`][crate::gpio::Flex] pin driver. Note that if you use `Flex`, the I2C
+    /// driver will not change the pin's configuration in any way.
+    ///
     /// This will replace previous pin assignments for this signal.
-    pub fn with_sda(mut self, sda: impl PeripheralOutput<'d>) -> Self {
+    ///
+    /// ## Examples
+    ///
+    /// Basic usage
+    ///
+    /// ```rust, no_run
+    /// # {before_snippet}
+    /// use esp_hal::i2c::master::{Config, I2c};
+    ///
+    /// let i2c = I2c::new(peripherals.I2C0, Config::default())?.with_sda(peripherals.GPIO2);
+    /// # {after_snippet}
+    /// ```
+    ///
+    /// Using `Flex` to configure the pin
+    ///
+    /// ```rust, no_run
+    /// # {before_snippet}
+    /// use esp_hal::{
+    ///     gpio::{DriveMode, Flex, OutputConfig},
+    ///     i2c::master::{Config, I2c},
+    /// };
+    ///
+    /// let mut sda = Flex::new(peripherals.GPIO2);
+    ///
+    /// // The default pullup setting is `Pull::None`.
+    /// sda.apply_output_config(&OutputConfig::default().with_drive_mode(DriveMode::OpenDrain));
+    /// sda.set_input_enable(true);
+    /// sda.set_output_enable(true);
+    /// // Initial pin state to avoid the pin to go low during peripheral configuration.
+    /// sda.set_high();
+    ///
+    /// let i2c = I2c::new(peripherals.I2C0, Config::default())?.with_sda(sda);
+    /// # {after_snippet}
+    /// ```
+    pub fn with_sda(mut self, sda: impl PeripheralInput<'d> + PeripheralOutput<'d>) -> Self {
         let info = self.driver().info;
         let input = info.sda_input;
         let output = info.sda_output;
@@ -1158,18 +1202,47 @@ where
     #[procmacros::doc_replace]
     /// Connect a pin to the I2C SCL signal.
     ///
+    /// If this function is called with a pin singleton (e.g. `GPIO2`), the pin will be configured
+    /// to use the internal pull-up resistor. If this is undesired, call this function with a fully
+    /// configured [`Flex`][crate::gpio::Flex] pin driver. Note that if you use `Flex`, the I2C
+    /// driver will not change the pin's configuration in any way.
+    ///
     /// This will replace previous pin assignments for this signal.
     ///
-    /// ## Example
+    /// ## Examples
+    ///
+    /// Basic usage
     ///
     /// ```rust, no_run
     /// # {before_snippet}
     /// use esp_hal::i2c::master::{Config, I2c};
-    /// const DEVICE_ADDR: u8 = 0x77;
+    ///
     /// let i2c = I2c::new(peripherals.I2C0, Config::default())?.with_scl(peripherals.GPIO2);
     /// # {after_snippet}
     /// ```
-    pub fn with_scl(mut self, scl: impl PeripheralOutput<'d>) -> Self {
+    ///
+    /// Using `Flex` to configure the pin
+    ///
+    /// ```rust, no_run
+    /// # {before_snippet}
+    /// use esp_hal::{
+    ///     gpio::{DriveMode, Flex, OutputConfig},
+    ///     i2c::master::{Config, I2c},
+    /// };
+    ///
+    /// let mut scl = Flex::new(peripherals.GPIO2);
+    ///
+    /// // The default pullup setting is `Pull::None`.
+    /// scl.apply_output_config(&OutputConfig::default().with_drive_mode(DriveMode::OpenDrain));
+    /// scl.set_input_enable(true);
+    /// scl.set_output_enable(true);
+    /// // Initial pin state to avoid the pin to go low during peripheral configuration.
+    /// scl.set_high();
+    ///
+    /// let i2c = I2c::new(peripherals.I2C0, Config::default())?.with_scl(scl);
+    /// # {after_snippet}
+    /// ```
+    pub fn with_scl(mut self, scl: impl PeripheralInput<'d> + PeripheralOutput<'d>) -> Self {
         let info = self.driver().info;
         let input = info.scl_input;
         let output = info.scl_output;
@@ -1499,6 +1572,7 @@ fn configure_clock(
 #[doc(hidden)]
 #[derive(Debug)]
 #[non_exhaustive]
+#[allow(private_interfaces, reason = "Unstable details")]
 pub struct Info {
     /// Numeric instance id (0 = I2C0, 1 = I2C1, ...)
     #[cfg(soc_has_i2c1)]
@@ -3369,12 +3443,12 @@ impl AnyI2c<'_> {
         any::delegate!(self, i2c => { i2c.bind_peri_interrupt(handler) })
     }
 
-    fn disable_peri_interrupt(&self) {
-        any::delegate!(self, i2c => { i2c.disable_peri_interrupt() })
+    fn disable_peri_interrupt_on_all_cores(&self) {
+        any::delegate!(self, i2c => { i2c.disable_peri_interrupt_on_all_cores() })
     }
 
     fn set_interrupt_handler(&self, handler: InterruptHandler) {
-        self.disable_peri_interrupt();
+        self.disable_peri_interrupt_on_all_cores();
 
         self.info().enable_listen(EnumSet::all(), false);
         self.info().clear_interrupts(EnumSet::all());

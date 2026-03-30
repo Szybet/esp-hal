@@ -41,6 +41,7 @@ pub enum Chip {
     Esp32c3,
     Esp32c5,
     Esp32c6,
+    Esp32c61,
     Esp32h2,
     Esp32s2,
     Esp32s3,
@@ -54,12 +55,13 @@ impl core::str::FromStr for Chip {
             "esp32c3" => Ok(Self::Esp32c3),
             "esp32c5" => Ok(Self::Esp32c5),
             "esp32c6" => Ok(Self::Esp32c6),
+            "esp32c61" => Ok(Self::Esp32c61),
             "esp32h2" => Ok(Self::Esp32h2),
             "esp32s2" => Ok(Self::Esp32s2),
             "esp32s3" => Ok(Self::Esp32s3),
             _ => Err(alloc::format!(
                 "Unknown chip {s}. Possible options: esp32, esp32c2, esp32c3, esp32c5, esp32c6, \
-                 esp32h2, esp32s2, esp32s3"
+                 esp32c61, esp32h2, esp32s2, esp32s3"
             )),
         }
     }
@@ -75,6 +77,7 @@ impl Chip {
             ("CARGO_FEATURE_ESP32C3", Self::Esp32c3),
             ("CARGO_FEATURE_ESP32C5", Self::Esp32c5),
             ("CARGO_FEATURE_ESP32C6", Self::Esp32c6),
+            ("CARGO_FEATURE_ESP32C61", Self::Esp32c61),
             ("CARGO_FEATURE_ESP32H2", Self::Esp32h2),
             ("CARGO_FEATURE_ESP32S2", Self::Esp32s2),
             ("CARGO_FEATURE_ESP32S3", Self::Esp32s3),
@@ -85,7 +88,7 @@ impl Chip {
                 if chip.is_some() {
                     return Err(
                         "Expected exactly one of the following features to be enabled: esp32, \
-                         esp32c2, esp32c3, esp32c5, esp32c6, esp32h2, esp32s2, esp32s3",
+                         esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32s2, esp32s3",
                     );
                 }
                 chip = Some(c);
@@ -95,7 +98,7 @@ impl Chip {
             Some(chip) => Ok(chip),
             None => Err(
                 "Expected exactly one of the following features to be enabled: esp32, esp32c2, \
-                 esp32c3, esp32c5, esp32c6, esp32h2, esp32s2, esp32s3",
+                 esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32s2, esp32s3",
             ),
         }
     }
@@ -121,6 +124,7 @@ impl Chip {
             Self::Esp32c3 => "esp32c3",
             Self::Esp32c5 => "esp32c5",
             Self::Esp32c6 => "esp32c6",
+            Self::Esp32c61 => "esp32c61",
             Self::Esp32h2 => "esp32h2",
             Self::Esp32s2 => "esp32s2",
             Self::Esp32s3 => "esp32s3",
@@ -174,6 +178,7 @@ impl Chip {
             Self::Esp32c3,
             Self::Esp32c5,
             Self::Esp32c6,
+            Self::Esp32c61,
             Self::Esp32h2,
             Self::Esp32s2,
             Self::Esp32s3,
@@ -369,16 +374,11 @@ impl Chip {
                     "soc_has_clock_node_rtc_slow_clk",
                     "soc_has_clock_node_rtc_fast_clk",
                     "soc_has_clock_node_uart_mem_clk",
-                    "soc_has_clock_node_mcpwm0_function_clock",
-                    "soc_has_clock_node_mcpwm1_function_clock",
-                    "soc_has_clock_node_timg0_calibration_clock",
-                    "soc_has_clock_node_timg1_calibration_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart0_mem_clock",
-                    "soc_has_clock_node_uart1_function_clock",
-                    "soc_has_clock_node_uart1_mem_clock",
-                    "soc_has_clock_node_uart2_function_clock",
-                    "soc_has_clock_node_uart2_mem_clock",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_mcpwm_function_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_mem_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -572,16 +572,11 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_rtc_slow_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_rtc_fast_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clk",
-                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_mem_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_mem_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart2_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart2_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -614,7 +609,7 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 1,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 2,
@@ -622,7 +617,7 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 3,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 4,
@@ -658,19 +653,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 12,
-                        limitations: &["strapping"],
+                        limitations: &["strapping", "jtag"],
                     },
                     PinInfo {
                         pin: 13,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 14,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 15,
-                        limitations: &["strapping"],
+                        limitations: &["strapping", "jtag"],
                     },
                     PinInfo {
                         pin: 16,
@@ -840,7 +835,10 @@ impl Chip {
                     "dma_max_priority_is_set",
                     "dma_gdma_version=\"1\"",
                     "dma_gdma_version_is_set",
-                    "ecc_working_modes=\"7\"",
+                    "ecc_zero_extend_writes",
+                    "ecc_has_finite_field_division",
+                    "ecc_has_curve_p192",
+                    "ecc_has_curve_p256",
                     "gpio_gpio_function=\"1\"",
                     "gpio_constant_0_input=\"31\"",
                     "gpio_constant_1_input=\"30\"",
@@ -891,13 +889,12 @@ impl Chip {
                     "soc_has_clock_node_rtc_fast_clk",
                     "soc_has_clock_node_low_power_clk",
                     "soc_has_clock_node_uart_mem_clk",
-                    "soc_has_clock_node_timg0_function_clock",
-                    "soc_has_clock_node_timg0_calibration_clock",
-                    "soc_has_clock_node_timg0_wdt_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart0_mem_clock",
-                    "soc_has_clock_node_uart1_function_clock",
-                    "soc_has_clock_node_uart1_mem_clock",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_timg_function_clock",
+                    "soc_has_clock_node_timg_wdt_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_mem_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -907,6 +904,7 @@ impl Chip {
                     "timergroup_timg_has_divcnt_rst",
                     "timergroup_rc_fast_calibration_is_set",
                     "uart_ram_size=\"128\"",
+                    "uart_has_sclk_divider",
                     "wifi_mac_version=\"1\"",
                 ],
                 cfgs: &[
@@ -996,7 +994,10 @@ impl Chip {
                     "cargo:rustc-cfg=dma_max_priority_is_set",
                     "cargo:rustc-cfg=dma_gdma_version=\"1\"",
                     "cargo:rustc-cfg=dma_gdma_version_is_set",
-                    "cargo:rustc-cfg=ecc_working_modes=\"7\"",
+                    "cargo:rustc-cfg=ecc_zero_extend_writes",
+                    "cargo:rustc-cfg=ecc_has_finite_field_division",
+                    "cargo:rustc-cfg=ecc_has_curve_p192",
+                    "cargo:rustc-cfg=ecc_has_curve_p256",
                     "cargo:rustc-cfg=gpio_gpio_function=\"1\"",
                     "cargo:rustc-cfg=gpio_constant_0_input=\"31\"",
                     "cargo:rustc-cfg=gpio_constant_1_input=\"30\"",
@@ -1047,13 +1048,12 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_rtc_fast_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_low_power_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clk",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_mem_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_wdt_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -1063,6 +1063,7 @@ impl Chip {
                     "cargo:rustc-cfg=timergroup_timg_has_divcnt_rst",
                     "cargo:rustc-cfg=timergroup_rc_fast_calibration_is_set",
                     "cargo:rustc-cfg=uart_ram_size=\"128\"",
+                    "cargo:rustc-cfg=uart_has_sclk_divider",
                     "cargo:rustc-cfg=wifi_mac_version=\"1\"",
                 ],
                 memory_layout: &MemoryLayout {
@@ -1100,19 +1101,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 4,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 5,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 6,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 7,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 8,
@@ -1160,11 +1161,11 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 19,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 20,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                 ],
             },
@@ -1355,17 +1356,13 @@ impl Chip {
                     "soc_has_clock_node_rtc_fast_clk",
                     "soc_has_clock_node_low_power_clk",
                     "soc_has_clock_node_uart_mem_clk",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_timg_function_clock",
+                    "soc_has_clock_node_timg_wdt_clock",
                     "soc_has_clock_node_rmt_sclk",
-                    "soc_has_clock_node_timg0_function_clock",
-                    "soc_has_clock_node_timg0_calibration_clock",
-                    "soc_has_clock_node_timg0_wdt_clock",
-                    "soc_has_clock_node_timg1_function_clock",
-                    "soc_has_clock_node_timg1_calibration_clock",
-                    "soc_has_clock_node_timg1_wdt_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart0_mem_clock",
-                    "soc_has_clock_node_uart1_function_clock",
-                    "soc_has_clock_node_uart1_mem_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_mem_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -1375,6 +1372,7 @@ impl Chip {
                     "timergroup_timg_has_divcnt_rst",
                     "timergroup_rc_fast_calibration_is_set",
                     "uart_ram_size=\"128\"",
+                    "uart_has_sclk_divider",
                     "wifi_mac_version=\"1\"",
                 ],
                 cfgs: &[
@@ -1561,17 +1559,13 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_rtc_fast_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_low_power_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_wdt_clock",
                     "cargo:rustc-cfg=soc_has_clock_node_rmt_sclk",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_mem_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -1581,6 +1575,7 @@ impl Chip {
                     "cargo:rustc-cfg=timergroup_timg_has_divcnt_rst",
                     "cargo:rustc-cfg=timergroup_rc_fast_calibration_is_set",
                     "cargo:rustc-cfg=uart_ram_size=\"128\"",
+                    "cargo:rustc-cfg=uart_has_sclk_divider",
                     "cargo:rustc-cfg=wifi_mac_version=\"1\"",
                 ],
                 memory_layout: &MemoryLayout {
@@ -1618,19 +1613,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 4,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 5,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 6,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 7,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 8,
@@ -1674,19 +1669,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 18,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 19,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 20,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 21,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                 ],
             },
@@ -1716,6 +1711,7 @@ impl Chip {
                     "soc_has_i2c_ana_mst",
                     "soc_has_i2c0",
                     "soc_has_i2s0",
+                    "soc_has_ieee802154",
                     "soc_has_interrupt_core0",
                     "soc_has_intpri",
                     "soc_has_io_mux",
@@ -1760,6 +1756,7 @@ impl Chip {
                     "soc_has_dma_ch0",
                     "soc_has_dma_ch1",
                     "soc_has_dma_ch2",
+                    "soc_has_adc1",
                     "soc_has_bt",
                     "soc_has_flash",
                     "soc_has_gpio_dedicated",
@@ -1778,13 +1775,16 @@ impl Chip {
                     "rom_crc_le",
                     "rom_crc_be",
                     "rom_md5_bsd",
+                    "adc_driver_supported",
                     "aes_driver_supported",
                     "assist_debug_driver_supported",
+                    "bt_driver_supported",
                     "dedicated_gpio_driver_supported",
                     "dma_driver_supported",
                     "ecc_driver_supported",
                     "gpio_driver_supported",
                     "i2c_master_driver_supported",
+                    "ieee802154_driver_supported",
                     "interrupts_driver_supported",
                     "io_mux_driver_supported",
                     "lp_i2c_master_driver_supported",
@@ -1804,6 +1804,7 @@ impl Chip {
                     "uhci_driver_supported",
                     "usb_serial_jtag_driver_supported",
                     "wifi_driver_supported",
+                    "adc_adc1",
                     "i2c_master_i2c0",
                     "spi_master_spi2",
                     "spi_slave_spi2",
@@ -1829,7 +1830,14 @@ impl Chip {
                     "dma_max_priority_is_set",
                     "dma_gdma_version=\"2\"",
                     "dma_gdma_version_is_set",
-                    "ecc_working_modes=\"11\"",
+                    "ecc_separate_jacobian_point_memory",
+                    "ecc_has_memory_clock_gate",
+                    "ecc_supports_enhanced_security",
+                    "ecc_has_modular_arithmetic",
+                    "ecc_has_point_addition",
+                    "ecc_has_curve_p192",
+                    "ecc_has_curve_p256",
+                    "ecc_has_curve_p384",
                     "gpio_gpio_function=\"1\"",
                     "gpio_constant_0_input=\"96\"",
                     "gpio_constant_1_input=\"64\"",
@@ -1837,6 +1845,7 @@ impl Chip {
                     "gpio_input_signal_max=\"116\"",
                     "gpio_output_signal_max=\"256\"",
                     "i2c_master_has_fsm_timeouts",
+                    "i2c_master_has_hw_bus_clear",
                     "i2c_master_has_bus_timeout_enable",
                     "i2c_master_can_estimate_nack_reason",
                     "i2c_master_has_conf_update",
@@ -1898,15 +1907,13 @@ impl Chip {
                     "soc_has_clock_node_lp_slow_clk",
                     "soc_has_clock_node_crypto_clk",
                     "soc_has_clock_node_timg_calibration_clock",
-                    "soc_has_clock_node_parlio_rx_clock",
-                    "soc_has_clock_node_parlio_tx_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
+                    "soc_has_clock_node_timg_function_clock",
+                    "soc_has_clock_node_timg_wdt_clock",
                     "soc_has_clock_node_rmt_sclk",
-                    "soc_has_clock_node_timg0_function_clock",
-                    "soc_has_clock_node_timg0_wdt_clock",
-                    "soc_has_clock_node_timg1_function_clock",
-                    "soc_has_clock_node_timg1_wdt_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart1_function_clock",
+                    "soc_has_clock_node_parl_io_rx_clock",
+                    "soc_has_clock_node_parl_io_tx_clock",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -1944,6 +1951,7 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_i2c_ana_mst",
                     "cargo:rustc-cfg=soc_has_i2c0",
                     "cargo:rustc-cfg=soc_has_i2s0",
+                    "cargo:rustc-cfg=soc_has_ieee802154",
                     "cargo:rustc-cfg=soc_has_interrupt_core0",
                     "cargo:rustc-cfg=soc_has_intpri",
                     "cargo:rustc-cfg=soc_has_io_mux",
@@ -1988,6 +1996,7 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_dma_ch0",
                     "cargo:rustc-cfg=soc_has_dma_ch1",
                     "cargo:rustc-cfg=soc_has_dma_ch2",
+                    "cargo:rustc-cfg=soc_has_adc1",
                     "cargo:rustc-cfg=soc_has_bt",
                     "cargo:rustc-cfg=soc_has_flash",
                     "cargo:rustc-cfg=soc_has_gpio_dedicated",
@@ -2006,13 +2015,16 @@ impl Chip {
                     "cargo:rustc-cfg=rom_crc_le",
                     "cargo:rustc-cfg=rom_crc_be",
                     "cargo:rustc-cfg=rom_md5_bsd",
+                    "cargo:rustc-cfg=adc_driver_supported",
                     "cargo:rustc-cfg=aes_driver_supported",
                     "cargo:rustc-cfg=assist_debug_driver_supported",
+                    "cargo:rustc-cfg=bt_driver_supported",
                     "cargo:rustc-cfg=dedicated_gpio_driver_supported",
                     "cargo:rustc-cfg=dma_driver_supported",
                     "cargo:rustc-cfg=ecc_driver_supported",
                     "cargo:rustc-cfg=gpio_driver_supported",
                     "cargo:rustc-cfg=i2c_master_driver_supported",
+                    "cargo:rustc-cfg=ieee802154_driver_supported",
                     "cargo:rustc-cfg=interrupts_driver_supported",
                     "cargo:rustc-cfg=io_mux_driver_supported",
                     "cargo:rustc-cfg=lp_i2c_master_driver_supported",
@@ -2032,6 +2044,7 @@ impl Chip {
                     "cargo:rustc-cfg=uhci_driver_supported",
                     "cargo:rustc-cfg=usb_serial_jtag_driver_supported",
                     "cargo:rustc-cfg=wifi_driver_supported",
+                    "cargo:rustc-cfg=adc_adc1",
                     "cargo:rustc-cfg=i2c_master_i2c0",
                     "cargo:rustc-cfg=spi_master_spi2",
                     "cargo:rustc-cfg=spi_slave_spi2",
@@ -2057,7 +2070,14 @@ impl Chip {
                     "cargo:rustc-cfg=dma_max_priority_is_set",
                     "cargo:rustc-cfg=dma_gdma_version=\"2\"",
                     "cargo:rustc-cfg=dma_gdma_version_is_set",
-                    "cargo:rustc-cfg=ecc_working_modes=\"11\"",
+                    "cargo:rustc-cfg=ecc_separate_jacobian_point_memory",
+                    "cargo:rustc-cfg=ecc_has_memory_clock_gate",
+                    "cargo:rustc-cfg=ecc_supports_enhanced_security",
+                    "cargo:rustc-cfg=ecc_has_modular_arithmetic",
+                    "cargo:rustc-cfg=ecc_has_point_addition",
+                    "cargo:rustc-cfg=ecc_has_curve_p192",
+                    "cargo:rustc-cfg=ecc_has_curve_p256",
+                    "cargo:rustc-cfg=ecc_has_curve_p384",
                     "cargo:rustc-cfg=gpio_gpio_function=\"1\"",
                     "cargo:rustc-cfg=gpio_constant_0_input=\"96\"",
                     "cargo:rustc-cfg=gpio_constant_1_input=\"64\"",
@@ -2065,6 +2085,7 @@ impl Chip {
                     "cargo:rustc-cfg=gpio_input_signal_max=\"116\"",
                     "cargo:rustc-cfg=gpio_output_signal_max=\"256\"",
                     "cargo:rustc-cfg=i2c_master_has_fsm_timeouts",
+                    "cargo:rustc-cfg=i2c_master_has_hw_bus_clear",
                     "cargo:rustc-cfg=i2c_master_has_bus_timeout_enable",
                     "cargo:rustc-cfg=i2c_master_can_estimate_nack_reason",
                     "cargo:rustc-cfg=i2c_master_has_conf_update",
@@ -2126,15 +2147,13 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_lp_slow_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_crypto_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_parlio_rx_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_parlio_tx_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_wdt_clock",
                     "cargo:rustc-cfg=soc_has_clock_node_rmt_sclk",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_parl_io_rx_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_parl_io_tx_clock",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -2160,7 +2179,7 @@ impl Chip {
                         (
                             "dram2_uninit",
                             MemoryRegion {
-                                address_range: 0x0..0x4085E5A0,
+                                address_range: 0x4084E5A0..0x4085E5A0,
                             },
                         ),
                     ],
@@ -2176,19 +2195,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 2,
-                        limitations: &["strapping"],
+                        limitations: &["strapping", "jtag"],
                     },
                     PinInfo {
                         pin: 3,
-                        limitations: &["strapping"],
+                        limitations: &["strapping", "jtag"],
                     },
                     PinInfo {
                         pin: 4,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 5,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 6,
@@ -2212,19 +2231,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 11,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 12,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 13,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 14,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 23,
@@ -2427,8 +2446,10 @@ impl Chip {
                     "dma_max_priority_is_set",
                     "dma_gdma_version=\"1\"",
                     "dma_gdma_version_is_set",
-                    "ecc_working_modes=\"8\"",
                     "ecc_zero_extend_writes",
+                    "ecc_has_memory_clock_gate",
+                    "ecc_has_curve_p192",
+                    "ecc_has_curve_p256",
                     "gpio_gpio_function=\"1\"",
                     "gpio_constant_0_input=\"60\"",
                     "gpio_constant_1_input=\"56\"",
@@ -2504,18 +2525,15 @@ impl Chip {
                     "soc_has_clock_node_xtal_d2_clk",
                     "soc_has_clock_node_lp_fast_clk",
                     "soc_has_clock_node_lp_slow_clk",
-                    "soc_has_clock_node_mcpwm0_function_clock",
-                    "soc_has_clock_node_parlio_rx_clock",
-                    "soc_has_clock_node_parlio_tx_clock",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
                     "soc_has_clock_node_rmt_sclk",
-                    "soc_has_clock_node_timg0_function_clock",
-                    "soc_has_clock_node_timg0_calibration_clock",
-                    "soc_has_clock_node_timg0_wdt_clock",
-                    "soc_has_clock_node_timg1_function_clock",
-                    "soc_has_clock_node_timg1_calibration_clock",
-                    "soc_has_clock_node_timg1_wdt_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart1_function_clock",
+                    "soc_has_clock_node_timg_function_clock",
+                    "soc_has_clock_node_timg_wdt_clock",
+                    "soc_has_clock_node_mcpwm_function_clock",
+                    "soc_has_clock_node_parl_io_rx_clock",
+                    "soc_has_clock_node_parl_io_tx_clock",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -2702,8 +2720,10 @@ impl Chip {
                     "cargo:rustc-cfg=dma_max_priority_is_set",
                     "cargo:rustc-cfg=dma_gdma_version=\"1\"",
                     "cargo:rustc-cfg=dma_gdma_version_is_set",
-                    "cargo:rustc-cfg=ecc_working_modes=\"8\"",
                     "cargo:rustc-cfg=ecc_zero_extend_writes",
+                    "cargo:rustc-cfg=ecc_has_memory_clock_gate",
+                    "cargo:rustc-cfg=ecc_has_curve_p192",
+                    "cargo:rustc-cfg=ecc_has_curve_p256",
                     "cargo:rustc-cfg=gpio_gpio_function=\"1\"",
                     "cargo:rustc-cfg=gpio_constant_0_input=\"60\"",
                     "cargo:rustc-cfg=gpio_constant_1_input=\"56\"",
@@ -2779,18 +2799,15 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_xtal_d2_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_lp_fast_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_lp_slow_clk",
-                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_parlio_rx_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_parlio_tx_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
                     "cargo:rustc-cfg=soc_has_clock_node_rmt_sclk",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_wdt_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_parl_io_rx_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_parl_io_tx_clock",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -2840,19 +2857,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 4,
-                        limitations: &["strapping"],
+                        limitations: &["strapping", "jtag"],
                     },
                     PinInfo {
                         pin: 5,
-                        limitations: &["strapping"],
+                        limitations: &["strapping", "jtag"],
                     },
                     PinInfo {
                         pin: 6,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 7,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 8,
@@ -2872,11 +2889,11 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 12,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 13,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 14,
@@ -2888,11 +2905,11 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 16,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 17,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 18,
@@ -2945,6 +2962,406 @@ impl Chip {
                     PinInfo {
                         pin: 30,
                         limitations: &["spi_flash"],
+                    },
+                ],
+            },
+            Self::Esp32c61 => Config {
+                architecture: "riscv",
+                target: "riscv32imac-unknown-none-elf",
+                symbols: &[
+                    "esp32c61",
+                    "riscv",
+                    "single_core",
+                    "soc_has_assist_debug",
+                    "soc_has_clint",
+                    "soc_has_dma",
+                    "soc_has_ecc",
+                    "soc_has_ecdsa",
+                    "soc_has_efuse",
+                    "soc_has_etm",
+                    "soc_has_gpio",
+                    "soc_has_hp_apm",
+                    "soc_has_hp_sys",
+                    "soc_has_i2c_ana_mst",
+                    "soc_has_i2c0",
+                    "soc_has_i2s0",
+                    "soc_has_interrupt_core0",
+                    "soc_has_intpri",
+                    "soc_has_io_mux",
+                    "soc_has_lp_ana",
+                    "soc_has_lp_aon",
+                    "soc_has_lp_apm",
+                    "soc_has_lp_clkrst",
+                    "soc_has_lpwr",
+                    "soc_has_lp_io_mux",
+                    "soc_has_lp_peri",
+                    "soc_has_lp_tee",
+                    "soc_has_lp_timer",
+                    "soc_has_lp_wdt",
+                    "soc_has_mem_monitor",
+                    "soc_has_modem_lpcon",
+                    "soc_has_modem_syscon",
+                    "soc_has_pau",
+                    "soc_has_pcr",
+                    "soc_has_pmu",
+                    "soc_has_rng",
+                    "soc_has_sha",
+                    "soc_has_slc",
+                    "soc_has_system",
+                    "soc_has_systimer",
+                    "soc_has_tee",
+                    "soc_has_timg0",
+                    "soc_has_timg1",
+                    "soc_has_uart0",
+                    "soc_has_uart1",
+                    "soc_has_usb_device",
+                    "soc_has_bt",
+                    "soc_has_flash",
+                    "soc_has_lp_core",
+                    "soc_has_sw_interrupt",
+                    "soc_has_wifi",
+                    "swd",
+                    "rom_crc_le",
+                    "rom_crc_be",
+                    "rom_md5_bsd",
+                    "bt_driver_supported",
+                    "gpio_driver_supported",
+                    "i2c_master_driver_supported",
+                    "interrupts_driver_supported",
+                    "rng_driver_supported",
+                    "soc_driver_supported",
+                    "systimer_driver_supported",
+                    "timergroup_driver_supported",
+                    "uart_driver_supported",
+                    "wifi_driver_supported",
+                    "i2c_master_i2c0",
+                    "timergroup_timg0",
+                    "timergroup_timg1",
+                    "uart_uart0",
+                    "uart_uart1",
+                    "bt_controller=\"npl\"",
+                    "gpio_gpio_function=\"1\"",
+                    "gpio_constant_0_input=\"96\"",
+                    "gpio_constant_1_input=\"64\"",
+                    "gpio_func_in_sel_offset=\"0\"",
+                    "gpio_input_signal_max=\"100\"",
+                    "gpio_output_signal_max=\"256\"",
+                    "i2c_master_has_fsm_timeouts",
+                    "i2c_master_has_hw_bus_clear",
+                    "i2c_master_has_bus_timeout_enable",
+                    "i2c_master_can_estimate_nack_reason",
+                    "i2c_master_has_conf_update",
+                    "i2c_master_has_reliable_fsm_reset",
+                    "i2c_master_has_arbitration_en",
+                    "i2c_master_has_tx_fifo_watermark",
+                    "i2c_master_bus_timeout_is_exponential",
+                    "i2c_master_max_bus_timeout=\"31\"",
+                    "i2c_master_ll_intr_mask=\"262143\"",
+                    "i2c_master_fifo_size=\"32\"",
+                    "interrupts_status_registers=\"3\"",
+                    "interrupt_controller=\"clic\"",
+                    "rng_apb_cycle_wait_num=\"16\"",
+                    "soc_rc_fast_clk_default=\"17500000\"",
+                    "soc_rc_fast_clk_default_is_set",
+                    "soc_has_clock_node_xtal_clk",
+                    "soc_has_clock_node_rc_fast_clk",
+                    "soc_has_clock_node_pll_clk",
+                    "soc_has_clock_node_xtal32k_clk",
+                    "soc_has_clock_node_osc_slow_clk",
+                    "soc_has_clock_node_rc_slow_clk",
+                    "soc_has_clock_node_pll_f20m",
+                    "soc_has_clock_node_pll_f40m",
+                    "soc_has_clock_node_pll_f48m",
+                    "soc_has_clock_node_pll_f60m",
+                    "soc_has_clock_node_pll_f80m",
+                    "soc_has_clock_node_pll_f120m",
+                    "soc_has_clock_node_pll_f160m",
+                    "soc_has_clock_node_hp_root_clk",
+                    "soc_has_clock_node_cpu_clk",
+                    "soc_has_clock_node_ahb_clk",
+                    "soc_has_clock_node_apb_clk",
+                    "soc_has_clock_node_xtal_d2_clk",
+                    "soc_has_clock_node_lp_fast_clk",
+                    "soc_has_clock_node_lp_slow_clk",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
+                    "soc_has_clock_node_timg_function_clock",
+                    "soc_has_clock_node_timg_wdt_clock",
+                    "has_dram_region",
+                    "has_dram2_uninit_region",
+                    "timergroup_timg_has_divcnt_rst",
+                    "timergroup_rc_fast_calibration_is_set",
+                    "uart_ram_size=\"128\"",
+                    "uart_peripheral_controls_mem_clk",
+                    "wifi_has_wifi6",
+                    "wifi_mac_version=\"3\"",
+                ],
+                cfgs: &[
+                    "cargo:rustc-cfg=esp32c61",
+                    "cargo:rustc-cfg=riscv",
+                    "cargo:rustc-cfg=single_core",
+                    "cargo:rustc-cfg=soc_has_assist_debug",
+                    "cargo:rustc-cfg=soc_has_clint",
+                    "cargo:rustc-cfg=soc_has_dma",
+                    "cargo:rustc-cfg=soc_has_ecc",
+                    "cargo:rustc-cfg=soc_has_ecdsa",
+                    "cargo:rustc-cfg=soc_has_efuse",
+                    "cargo:rustc-cfg=soc_has_etm",
+                    "cargo:rustc-cfg=soc_has_gpio",
+                    "cargo:rustc-cfg=soc_has_hp_apm",
+                    "cargo:rustc-cfg=soc_has_hp_sys",
+                    "cargo:rustc-cfg=soc_has_i2c_ana_mst",
+                    "cargo:rustc-cfg=soc_has_i2c0",
+                    "cargo:rustc-cfg=soc_has_i2s0",
+                    "cargo:rustc-cfg=soc_has_interrupt_core0",
+                    "cargo:rustc-cfg=soc_has_intpri",
+                    "cargo:rustc-cfg=soc_has_io_mux",
+                    "cargo:rustc-cfg=soc_has_lp_ana",
+                    "cargo:rustc-cfg=soc_has_lp_aon",
+                    "cargo:rustc-cfg=soc_has_lp_apm",
+                    "cargo:rustc-cfg=soc_has_lp_clkrst",
+                    "cargo:rustc-cfg=soc_has_lpwr",
+                    "cargo:rustc-cfg=soc_has_lp_io_mux",
+                    "cargo:rustc-cfg=soc_has_lp_peri",
+                    "cargo:rustc-cfg=soc_has_lp_tee",
+                    "cargo:rustc-cfg=soc_has_lp_timer",
+                    "cargo:rustc-cfg=soc_has_lp_wdt",
+                    "cargo:rustc-cfg=soc_has_mem_monitor",
+                    "cargo:rustc-cfg=soc_has_modem_lpcon",
+                    "cargo:rustc-cfg=soc_has_modem_syscon",
+                    "cargo:rustc-cfg=soc_has_pau",
+                    "cargo:rustc-cfg=soc_has_pcr",
+                    "cargo:rustc-cfg=soc_has_pmu",
+                    "cargo:rustc-cfg=soc_has_rng",
+                    "cargo:rustc-cfg=soc_has_sha",
+                    "cargo:rustc-cfg=soc_has_slc",
+                    "cargo:rustc-cfg=soc_has_system",
+                    "cargo:rustc-cfg=soc_has_systimer",
+                    "cargo:rustc-cfg=soc_has_tee",
+                    "cargo:rustc-cfg=soc_has_timg0",
+                    "cargo:rustc-cfg=soc_has_timg1",
+                    "cargo:rustc-cfg=soc_has_uart0",
+                    "cargo:rustc-cfg=soc_has_uart1",
+                    "cargo:rustc-cfg=soc_has_usb_device",
+                    "cargo:rustc-cfg=soc_has_bt",
+                    "cargo:rustc-cfg=soc_has_flash",
+                    "cargo:rustc-cfg=soc_has_lp_core",
+                    "cargo:rustc-cfg=soc_has_sw_interrupt",
+                    "cargo:rustc-cfg=soc_has_wifi",
+                    "cargo:rustc-cfg=swd",
+                    "cargo:rustc-cfg=rom_crc_le",
+                    "cargo:rustc-cfg=rom_crc_be",
+                    "cargo:rustc-cfg=rom_md5_bsd",
+                    "cargo:rustc-cfg=bt_driver_supported",
+                    "cargo:rustc-cfg=gpio_driver_supported",
+                    "cargo:rustc-cfg=i2c_master_driver_supported",
+                    "cargo:rustc-cfg=interrupts_driver_supported",
+                    "cargo:rustc-cfg=rng_driver_supported",
+                    "cargo:rustc-cfg=soc_driver_supported",
+                    "cargo:rustc-cfg=systimer_driver_supported",
+                    "cargo:rustc-cfg=timergroup_driver_supported",
+                    "cargo:rustc-cfg=uart_driver_supported",
+                    "cargo:rustc-cfg=wifi_driver_supported",
+                    "cargo:rustc-cfg=i2c_master_i2c0",
+                    "cargo:rustc-cfg=timergroup_timg0",
+                    "cargo:rustc-cfg=timergroup_timg1",
+                    "cargo:rustc-cfg=uart_uart0",
+                    "cargo:rustc-cfg=uart_uart1",
+                    "cargo:rustc-cfg=bt_controller=\"npl\"",
+                    "cargo:rustc-cfg=gpio_gpio_function=\"1\"",
+                    "cargo:rustc-cfg=gpio_constant_0_input=\"96\"",
+                    "cargo:rustc-cfg=gpio_constant_1_input=\"64\"",
+                    "cargo:rustc-cfg=gpio_func_in_sel_offset=\"0\"",
+                    "cargo:rustc-cfg=gpio_input_signal_max=\"100\"",
+                    "cargo:rustc-cfg=gpio_output_signal_max=\"256\"",
+                    "cargo:rustc-cfg=i2c_master_has_fsm_timeouts",
+                    "cargo:rustc-cfg=i2c_master_has_hw_bus_clear",
+                    "cargo:rustc-cfg=i2c_master_has_bus_timeout_enable",
+                    "cargo:rustc-cfg=i2c_master_can_estimate_nack_reason",
+                    "cargo:rustc-cfg=i2c_master_has_conf_update",
+                    "cargo:rustc-cfg=i2c_master_has_reliable_fsm_reset",
+                    "cargo:rustc-cfg=i2c_master_has_arbitration_en",
+                    "cargo:rustc-cfg=i2c_master_has_tx_fifo_watermark",
+                    "cargo:rustc-cfg=i2c_master_bus_timeout_is_exponential",
+                    "cargo:rustc-cfg=i2c_master_max_bus_timeout=\"31\"",
+                    "cargo:rustc-cfg=i2c_master_ll_intr_mask=\"262143\"",
+                    "cargo:rustc-cfg=i2c_master_fifo_size=\"32\"",
+                    "cargo:rustc-cfg=interrupts_status_registers=\"3\"",
+                    "cargo:rustc-cfg=interrupt_controller=\"clic\"",
+                    "cargo:rustc-cfg=rng_apb_cycle_wait_num=\"16\"",
+                    "cargo:rustc-cfg=soc_rc_fast_clk_default=\"17500000\"",
+                    "cargo:rustc-cfg=soc_rc_fast_clk_default_is_set",
+                    "cargo:rustc-cfg=soc_has_clock_node_xtal_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_rc_fast_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_xtal32k_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_osc_slow_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_rc_slow_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_f20m",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_f40m",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_f48m",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_f60m",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_f80m",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_f120m",
+                    "cargo:rustc-cfg=soc_has_clock_node_pll_f160m",
+                    "cargo:rustc-cfg=soc_has_clock_node_hp_root_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_cpu_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_ahb_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_apb_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_xtal_d2_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_lp_fast_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_lp_slow_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_wdt_clock",
+                    "cargo:rustc-cfg=has_dram_region",
+                    "cargo:rustc-cfg=has_dram2_uninit_region",
+                    "cargo:rustc-cfg=timergroup_timg_has_divcnt_rst",
+                    "cargo:rustc-cfg=timergroup_rc_fast_calibration_is_set",
+                    "cargo:rustc-cfg=uart_ram_size=\"128\"",
+                    "cargo:rustc-cfg=uart_peripheral_controls_mem_clk",
+                    "cargo:rustc-cfg=wifi_has_wifi6",
+                    "cargo:rustc-cfg=wifi_mac_version=\"3\"",
+                ],
+                memory_layout: &MemoryLayout {
+                    regions: &[
+                        (
+                            "dram",
+                            MemoryRegion {
+                                address_range: 0x40800000..0x40850000,
+                            },
+                        ),
+                        (
+                            "dram2_uninit",
+                            MemoryRegion {
+                                address_range: 0x4083EA70..0x4084EA70,
+                            },
+                        ),
+                    ],
+                },
+                pins: &[
+                    PinInfo {
+                        pin: 0,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 1,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 2,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 3,
+                        limitations: &["strapping", "jtag"],
+                    },
+                    PinInfo {
+                        pin: 4,
+                        limitations: &["strapping", "jtag"],
+                    },
+                    PinInfo {
+                        pin: 5,
+                        limitations: &["jtag"],
+                    },
+                    PinInfo {
+                        pin: 6,
+                        limitations: &["jtag"],
+                    },
+                    PinInfo {
+                        pin: 7,
+                        limitations: &["strapping"],
+                    },
+                    PinInfo {
+                        pin: 8,
+                        limitations: &["strapping"],
+                    },
+                    PinInfo {
+                        pin: 9,
+                        limitations: &["strapping"],
+                    },
+                    PinInfo {
+                        pin: 10,
+                        limitations: &["bootloader_uart"],
+                    },
+                    PinInfo {
+                        pin: 11,
+                        limitations: &["bootloader_uart"],
+                    },
+                    PinInfo {
+                        pin: 12,
+                        limitations: &["usb_jtag"],
+                    },
+                    PinInfo {
+                        pin: 13,
+                        limitations: &["usb_jtag"],
+                    },
+                    PinInfo {
+                        pin: 14,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 15,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 16,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 17,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 18,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 19,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 20,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 21,
+                        limitations: &["spi_flash"],
+                    },
+                    PinInfo {
+                        pin: 22,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 23,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 24,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 25,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 26,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 27,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 28,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 29,
+                        limitations: &[],
                     },
                 ],
             },
@@ -3100,8 +3517,14 @@ impl Chip {
                     "dma_max_priority_is_set",
                     "dma_gdma_version=\"1\"",
                     "dma_gdma_version_is_set",
-                    "ecc_working_modes=\"11\"",
                     "ecc_zero_extend_writes",
+                    "ecc_separate_jacobian_point_memory",
+                    "ecc_has_memory_clock_gate",
+                    "ecc_supports_enhanced_security",
+                    "ecc_has_modular_arithmetic",
+                    "ecc_has_point_addition",
+                    "ecc_has_curve_p192",
+                    "ecc_has_curve_p256",
                     "gpio_gpio_function=\"1\"",
                     "gpio_constant_0_input=\"60\"",
                     "gpio_constant_1_input=\"56\"",
@@ -3162,18 +3585,15 @@ impl Chip {
                     "soc_has_clock_node_xtal_d2_clk",
                     "soc_has_clock_node_lp_fast_clk",
                     "soc_has_clock_node_lp_slow_clk",
-                    "soc_has_clock_node_mcpwm0_function_clock",
-                    "soc_has_clock_node_parlio_rx_clock",
-                    "soc_has_clock_node_parlio_tx_clock",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
                     "soc_has_clock_node_rmt_sclk",
-                    "soc_has_clock_node_timg0_function_clock",
-                    "soc_has_clock_node_timg0_calibration_clock",
-                    "soc_has_clock_node_timg0_wdt_clock",
-                    "soc_has_clock_node_timg1_function_clock",
-                    "soc_has_clock_node_timg1_calibration_clock",
-                    "soc_has_clock_node_timg1_wdt_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart1_function_clock",
+                    "soc_has_clock_node_timg_function_clock",
+                    "soc_has_clock_node_timg_wdt_clock",
+                    "soc_has_clock_node_mcpwm_function_clock",
+                    "soc_has_clock_node_parl_io_rx_clock",
+                    "soc_has_clock_node_parl_io_tx_clock",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -3335,8 +3755,14 @@ impl Chip {
                     "cargo:rustc-cfg=dma_max_priority_is_set",
                     "cargo:rustc-cfg=dma_gdma_version=\"1\"",
                     "cargo:rustc-cfg=dma_gdma_version_is_set",
-                    "cargo:rustc-cfg=ecc_working_modes=\"11\"",
                     "cargo:rustc-cfg=ecc_zero_extend_writes",
+                    "cargo:rustc-cfg=ecc_separate_jacobian_point_memory",
+                    "cargo:rustc-cfg=ecc_has_memory_clock_gate",
+                    "cargo:rustc-cfg=ecc_supports_enhanced_security",
+                    "cargo:rustc-cfg=ecc_has_modular_arithmetic",
+                    "cargo:rustc-cfg=ecc_has_point_addition",
+                    "cargo:rustc-cfg=ecc_has_curve_p192",
+                    "cargo:rustc-cfg=ecc_has_curve_p256",
                     "cargo:rustc-cfg=gpio_gpio_function=\"1\"",
                     "cargo:rustc-cfg=gpio_constant_0_input=\"60\"",
                     "cargo:rustc-cfg=gpio_constant_1_input=\"56\"",
@@ -3397,18 +3823,15 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_xtal_d2_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_lp_fast_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_lp_slow_clk",
-                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_parlio_rx_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_parlio_tx_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
                     "cargo:rustc-cfg=soc_has_clock_node_rmt_sclk",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_wdt_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_wdt_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_parl_io_rx_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_parl_io_tx_clock",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -3448,19 +3871,19 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 2,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 3,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 4,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 5,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 6,
@@ -3504,11 +3927,11 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 23,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 24,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 25,
@@ -3516,11 +3939,11 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 26,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 27,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                 ],
             },
@@ -3722,14 +4145,11 @@ impl Chip {
                     "soc_has_clock_node_rtc_slow_clk",
                     "soc_has_clock_node_rtc_fast_clk",
                     "soc_has_clock_node_uart_mem_clk",
-                    "soc_has_clock_node_timg0_function_clock",
-                    "soc_has_clock_node_timg0_calibration_clock",
-                    "soc_has_clock_node_timg1_function_clock",
-                    "soc_has_clock_node_timg1_calibration_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart0_mem_clock",
-                    "soc_has_clock_node_uart1_function_clock",
-                    "soc_has_clock_node_uart1_mem_clock",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_timg_function_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
+                    "soc_has_clock_node_uart_mem_clock",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -3936,14 +4356,11 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_rtc_slow_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_rtc_fast_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clk",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_mem_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clock",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -4050,11 +4467,11 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 19,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 20,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 21,
@@ -4114,27 +4531,27 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 39,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 40,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 41,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 42,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 43,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 44,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 45,
@@ -4377,19 +4794,13 @@ impl Chip {
                     "soc_has_clock_node_rtc_fast_clk",
                     "soc_has_clock_node_low_power_clk",
                     "soc_has_clock_node_uart_mem_clk",
-                    "soc_has_clock_node_mcpwm0_function_clock",
-                    "soc_has_clock_node_mcpwm1_function_clock",
+                    "soc_has_clock_node_timg_calibration_clock",
+                    "soc_has_clock_node_mcpwm_function_clock",
+                    "soc_has_clock_node_timg_function_clock",
                     "soc_has_clock_node_rmt_sclk",
-                    "soc_has_clock_node_timg0_function_clock",
-                    "soc_has_clock_node_timg0_calibration_clock",
-                    "soc_has_clock_node_timg1_function_clock",
-                    "soc_has_clock_node_timg1_calibration_clock",
-                    "soc_has_clock_node_uart0_function_clock",
-                    "soc_has_clock_node_uart0_mem_clock",
-                    "soc_has_clock_node_uart1_function_clock",
-                    "soc_has_clock_node_uart1_mem_clock",
-                    "soc_has_clock_node_uart2_function_clock",
-                    "soc_has_clock_node_uart2_mem_clock",
+                    "soc_has_clock_node_uart_function_clock",
+                    "soc_has_clock_node_uart_baud_rate_generator",
+                    "soc_has_clock_node_uart_mem_clock",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                     "spi_master_supports_dma",
@@ -4400,6 +4811,7 @@ impl Chip {
                     "timergroup_timg_has_timer1",
                     "timergroup_rc_fast_calibration_is_set",
                     "uart_ram_size=\"128\"",
+                    "uart_has_sclk_divider",
                     "wifi_mac_version=\"1\"",
                 ],
                 cfgs: &[
@@ -4630,19 +5042,13 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_clock_node_rtc_fast_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_low_power_clk",
                     "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clk",
-                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm1_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_calibration_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_mcpwm_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_timg_function_clock",
                     "cargo:rustc-cfg=soc_has_clock_node_rmt_sclk",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg0_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_timg1_calibration_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart0_mem_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart1_mem_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart2_function_clock",
-                    "cargo:rustc-cfg=soc_has_clock_node_uart2_mem_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_function_clock",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_baud_rate_generator",
+                    "cargo:rustc-cfg=soc_has_clock_node_uart_mem_clock",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                     "cargo:rustc-cfg=spi_master_supports_dma",
@@ -4653,6 +5059,7 @@ impl Chip {
                     "cargo:rustc-cfg=timergroup_timg_has_timer1",
                     "cargo:rustc-cfg=timergroup_rc_fast_calibration_is_set",
                     "cargo:rustc-cfg=uart_ram_size=\"128\"",
+                    "cargo:rustc-cfg=uart_has_sclk_divider",
                     "cargo:rustc-cfg=wifi_mac_version=\"1\"",
                 ],
                 memory_layout: &MemoryLayout {
@@ -4750,11 +5157,11 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 19,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 20,
-                        limitations: &[],
+                        limitations: &["usb_jtag"],
                     },
                     PinInfo {
                         pin: 21,
@@ -4814,27 +5221,27 @@ impl Chip {
                     },
                     PinInfo {
                         pin: 39,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 40,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 41,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 42,
-                        limitations: &[],
+                        limitations: &["jtag"],
                     },
                     PinInfo {
                         pin: 43,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 44,
-                        limitations: &[],
+                        limitations: &["bootloader_uart"],
                     },
                     PinInfo {
                         pin: 45,
@@ -5076,16 +5483,11 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_rtc_slow_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_rtc_fast_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart_mem_clk)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mcpwm0_function_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mcpwm1_function_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg0_calibration_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg1_calibration_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart0_function_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart0_mem_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart1_function_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart1_mem_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart2_function_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart2_mem_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg_calibration_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mcpwm_function_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart_function_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart_mem_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_uart_baud_rate_generator)");
     println!("cargo:rustc-check-cfg=cfg(has_dram_region)");
     println!("cargo:rustc-check-cfg=cfg(has_dram2_uninit_region)");
     println!("cargo:rustc-check-cfg=cfg(spi_master_supports_dma)");
@@ -5122,6 +5524,10 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(dma_supports_mem2mem)");
     println!("cargo:rustc-check-cfg=cfg(dma_max_priority_is_set)");
     println!("cargo:rustc-check-cfg=cfg(dma_gdma_version_is_set)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_zero_extend_writes)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_has_finite_field_division)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_has_curve_p192)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_has_curve_p256)");
     println!("cargo:rustc-check-cfg=cfg(i2c_master_has_fsm_timeouts)");
     println!("cargo:rustc-check-cfg=cfg(i2c_master_has_hw_bus_clear)");
     println!("cargo:rustc-check-cfg=cfg(i2c_master_has_bus_timeout_enable)");
@@ -5142,11 +5548,12 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mspi_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_rc_fast_clk_div_n)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_low_power_clk)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg0_function_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg0_wdt_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg_function_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg_wdt_clock)");
     println!("cargo:rustc-check-cfg=cfg(spi_master_has_app_interrupts)");
     println!("cargo:rustc-check-cfg=cfg(spi_master_has_dma_segmented_transfer)");
     println!("cargo:rustc-check-cfg=cfg(timergroup_timg_has_divcnt_rst)");
+    println!("cargo:rustc-check-cfg=cfg(uart_has_sclk_divider)");
     println!("cargo:rustc-check-cfg=cfg(esp32c3)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_ds)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_fe)");
@@ -5181,8 +5588,6 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_cpu_pll_div_out)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_pll_160m)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_rmt_sclk)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg1_function_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg1_wdt_clock)");
     println!("cargo:rustc-check-cfg=cfg(esp32c5)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clint)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_ecdsa)");
@@ -5190,6 +5595,7 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_hp_apm)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_hp_sys)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_huk)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_ieee802154)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_intpri)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_keymng)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_lp_ana)");
@@ -5222,9 +5628,16 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_mem2mem6)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_mem2mem7)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_mem2mem8)");
+    println!("cargo:rustc-check-cfg=cfg(ieee802154_driver_supported)");
     println!("cargo:rustc-check-cfg=cfg(lp_i2c_master_driver_supported)");
     println!("cargo:rustc-check-cfg=cfg(parl_io_driver_supported)");
     println!("cargo:rustc-check-cfg=cfg(dma_separate_in_out_interrupts)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_separate_jacobian_point_memory)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_has_memory_clock_gate)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_supports_enhanced_security)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_has_modular_arithmetic)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_has_point_addition)");
+    println!("cargo:rustc-check-cfg=cfg(ecc_has_curve_p384)");
     println!("cargo:rustc-check-cfg=cfg(i2c_master_can_estimate_nack_reason)");
     println!("cargo:rustc-check-cfg=cfg(i2c_master_has_reliable_fsm_reset)");
     println!("cargo:rustc-check-cfg=cfg(rmt_has_tx_loop_auto_stop)");
@@ -5245,16 +5658,14 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_xtal_d2_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_lp_fast_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_lp_slow_clk)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_timg_calibration_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_parlio_rx_clock)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_parlio_tx_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_parl_io_rx_clock)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_parl_io_tx_clock)");
     println!("cargo:rustc-check-cfg=cfg(spi_master_has_clk_pre_div)");
     println!("cargo:rustc-check-cfg=cfg(uart_peripheral_controls_mem_clk)");
     println!("cargo:rustc-check-cfg=cfg(uhci_combined_uart_selector_field)");
     println!("cargo:rustc-check-cfg=cfg(wifi_has_5g)");
     println!("cargo:rustc-check-cfg=cfg(esp32c6)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_atomic)");
-    println!("cargo:rustc-check-cfg=cfg(soc_has_ieee802154)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_lp_apm)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_lp_i2c0)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_lp_io)");
@@ -5265,10 +5676,8 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(lp_core)");
     println!("cargo:rustc-check-cfg=cfg(pm_support_beacon_wakeup)");
     println!("cargo:rustc-check-cfg=cfg(etm_driver_supported)");
-    println!("cargo:rustc-check-cfg=cfg(ieee802154_driver_supported)");
     println!("cargo:rustc-check-cfg=cfg(lp_uart_driver_supported)");
     println!("cargo:rustc-check-cfg=cfg(ulp_riscv_driver_supported)");
-    println!("cargo:rustc-check-cfg=cfg(ecc_zero_extend_writes)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_soc_root_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_cpu_hs_div)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_cpu_ls_div)");
@@ -5280,6 +5689,7 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_ledc_sclk)");
     println!("cargo:rustc-check-cfg=cfg(timergroup_rc_fast_calibration_divider)");
     println!("cargo:rustc-check-cfg=cfg(wifi_has_wifi6)");
+    println!("cargo:rustc-check-cfg=cfg(esp32c61)");
     println!("cargo:rustc-check-cfg=cfg(esp32h2)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_pll_f96m_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_pll_f64m_clk)");
@@ -5360,7 +5770,6 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(wifi_mac_version, values(\"1\",\"3\",\"2\"))");
     println!("cargo:rustc-check-cfg=cfg(dma_max_priority, values(\"9\",\"5\"))");
     println!("cargo:rustc-check-cfg=cfg(dma_gdma_version, values(\"1\",\"2\"))");
-    println!("cargo:rustc-check-cfg=cfg(ecc_working_modes, values(\"7\",\"11\",\"8\"))");
     println!("cargo:rustc-check-cfg=cfg(phy_backed_up_digital_register_count, values(\"21\"))");
     println!("cargo:rustc-check-cfg=cfg(lp_i2c_master_fifo_size, values(\"16\"))");
     println!("cargo:rustc-check-cfg=cfg(lp_uart_ram_size, values(\"32\"))");

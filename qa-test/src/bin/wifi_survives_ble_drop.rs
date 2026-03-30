@@ -28,7 +28,14 @@ use esp_hal::{
 use esp_println::println;
 use esp_radio::{
     ble::controller::BleConnector,
-    wifi::{Config, Interface, WifiController, scan::ScanConfig, sta::StationConfig},
+    wifi::{
+        Config,
+        ControllerConfig,
+        Interface,
+        WifiController,
+        scan::ScanConfig,
+        sta::StationConfig,
+    },
 };
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -70,8 +77,19 @@ async fn main(spawner: Spawner) -> ! {
     let bluetooth = peripherals.BT;
     let ble_controller = BleConnector::new(bluetooth, Default::default()).unwrap();
 
-    let (mut controller, interfaces) =
-        esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
+    let station_config = Config::Station(
+        StationConfig::default()
+            .with_ssid(SSID)
+            .with_password(PASSWORD.into()),
+    );
+
+    println!("Starting wifi");
+    let (mut controller, interfaces) = esp_radio::wifi::new(
+        peripherals.WIFI,
+        ControllerConfig::default().with_initial_config(station_config),
+    )
+    .unwrap();
+    println!("Wifi configured and started!");
 
     let wifi_interface = interfaces.station;
 
@@ -88,15 +106,6 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
 
-    let station_config = Config::Station(
-        StationConfig::default()
-            .with_ssid(SSID)
-            .with_password(PASSWORD.into()),
-    );
-    println!("Starting wifi");
-    controller.set_config(&station_config).unwrap();
-    println!("Wifi started!");
-
     println!("Scan");
     let scan_config = ScanConfig::default().with_max(10);
     let result = controller.scan_async(&scan_config).await.unwrap();
@@ -104,8 +113,8 @@ async fn main(spawner: Spawner) -> ! {
         println!("{:?}", ap);
     }
 
-    spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task(runner)).ok();
+    spawner.spawn(connection(controller).unwrap());
+    spawner.spawn(net_task(runner).unwrap());
 
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];

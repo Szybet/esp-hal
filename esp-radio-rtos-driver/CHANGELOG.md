@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `ipc-implementations` feature, which enables the `CompatQueue`, `CompatSemaphore` and `CompatTimer` types (#4559)
 - Chip-specific features required for the `ipc-implementations` feature (#4559)
 - Support for ESP32-C5 (#5003)
+- Support for ESP32-C61 (#5255)
 
 ### Changed
 
@@ -30,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `register_queue_implementation` no longer requires `QueuePtr` to be in scope (#4559)
+- `task_create` now saturates the priority to the maximum supported by the OS (#5074)
 
 ### Removed
 

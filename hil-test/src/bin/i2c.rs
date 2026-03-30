@@ -1,6 +1,6 @@
 //! I2C test
 
-//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32h2 esp32s2 esp32s3
+//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32h2 esp32s2 esp32s3
 //% FEATURES: unstable embassy
 
 #![no_std]
@@ -60,6 +60,8 @@ async fn waiting_blocking_task() {
 
 #[embedded_test::tests(default_timeout = 3, executor = hil_test::Executor::new())]
 mod tests {
+    use esp_hal::gpio::{DriveMode, Flex, OutputConfig, Pull};
+
     use super::*;
 
     #[init]
@@ -70,6 +72,17 @@ mod tests {
         let timg0 = TimerGroup::new(peripherals.TIMG0);
         esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
         let (sda, scl) = hil_test::i2c_pins!(peripherals);
+
+        // Test that the pin can be explicitly configured using Flex:
+        let mut scl = Flex::new(scl);
+        scl.apply_output_config(
+            &OutputConfig::default()
+                .with_drive_mode(DriveMode::OpenDrain)
+                .with_pull(Pull::Up),
+        );
+        scl.set_input_enable(true);
+        scl.set_output_enable(true);
+        scl.set_high();
 
         // Create a new peripheral object with the described wiring and standard
         // I2C clock speed:
@@ -345,7 +358,7 @@ mod tests {
                 i2c.write_read_async(DUT_ADDRESS, READ_DATA_COMMAND, &mut read_data),
                 async {
                     for _ in 0..4 {
-                        spawner.must_spawn(waiting_blocking_task());
+                        spawner.spawn(waiting_blocking_task().unwrap());
                         embassy_futures::yield_now().await;
                     }
                 },

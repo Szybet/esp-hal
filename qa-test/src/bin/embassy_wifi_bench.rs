@@ -11,7 +11,7 @@
 //! variable before running this example.
 
 //% FEATURES: esp-radio esp-radio/wifi esp-radio/unstable esp-hal/unstable
-//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32s2 esp32s3
+//% CHIPS: esp32 esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32s2 esp32s3
 
 #![allow(static_mut_refs)]
 #![no_std]
@@ -33,7 +33,7 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::println;
-use esp_radio::wifi::{Config, Interface, WifiController, sta::StationConfig};
+use esp_radio::wifi::{Config, ControllerConfig, Interface, WifiController, sta::StationConfig};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -78,8 +78,19 @@ async fn main(spawner: Spawner) -> ! {
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
-    let (mut controller, interfaces) =
-        esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
+    let station_config = Config::Station(
+        StationConfig::default()
+            .with_ssid(SSID)
+            .with_password(PASSWORD.into()),
+    );
+
+    println!("Starting wifi");
+    let (mut controller, interfaces) = esp_radio::wifi::new(
+        peripherals.WIFI,
+        ControllerConfig::default().with_initial_config(station_config),
+    )
+    .unwrap();
+    println!("Wifi configured and started!");
 
     let wifi_interface = interfaces.station;
 
@@ -100,17 +111,8 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
 
-    let station_config = Config::Station(
-        StationConfig::default()
-            .with_ssid(SSID)
-            .with_password(PASSWORD.into()),
-    );
-    println!("Starting wifi");
-    controller.set_config(&station_config).unwrap();
-    println!("Wifi started!");
-
-    spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task(runner)).ok();
+    spawner.spawn(connection(controller).unwrap());
+    spawner.spawn(net_task(runner).unwrap());
 
     stack.wait_config_up().await;
 

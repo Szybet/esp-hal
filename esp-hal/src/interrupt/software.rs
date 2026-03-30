@@ -33,7 +33,7 @@
 //! // Define a shared handle to the software interrupt.
 //! static SWINT0: Mutex<RefCell<Option<SoftwareInterrupt<0>>>> = Mutex::new(RefCell::new(None));
 //!
-//! #[handler]
+//! #[esp_hal::handler]
 //! fn swint0_handler() {
 //!     println!("SW interrupt0 handled");
 //!
@@ -109,7 +109,7 @@ impl<const NUM: u8> SoftwareInterrupt<'_, NUM> {
     /// Trigger this software-interrupt
     pub fn raise(&self) {
         cfg_if::cfg_if! {
-            if #[cfg(any(esp32c5, esp32c6, esp32h2))] {
+            if #[cfg(soc_has_intpri)] {
                 let regs = crate::peripherals::INTPRI::regs();
             } else {
                 let regs = crate::peripherals::SYSTEM::regs();
@@ -136,7 +136,7 @@ impl<const NUM: u8> SoftwareInterrupt<'_, NUM> {
     /// Resets this software-interrupt
     pub fn reset(&self) {
         cfg_if::cfg_if! {
-            if #[cfg(any(esp32c5, esp32c6, esp32h2))] {
+            if #[cfg(soc_has_intpri)] {
                 let regs = crate::peripherals::INTPRI::regs();
             } else {
                 let regs = crate::peripherals::SYSTEM::regs();

@@ -34,8 +34,7 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::{print, println};
-use esp_radio::wifi::{Config, Interface, WifiController, ap::AccessPointConfig};
-
+use esp_radio::wifi::{Config, ControllerConfig, Interface, WifiController, ap::AccessPointConfig};
 esp_bootloader_esp_idf::esp_app_desc!();
 
 // When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
@@ -63,8 +62,16 @@ async fn main(spawner: Spawner) -> ! {
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
-    let (mut controller, interfaces) =
-        esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
+    let access_point_config =
+        Config::AccessPoint(AccessPointConfig::default().with_ssid("esp-radio"));
+
+    println!("Starting wifi");
+    let (controller, interfaces) = esp_radio::wifi::new(
+        peripherals.WIFI,
+        ControllerConfig::default().with_initial_config(access_point_config),
+    )
+    .unwrap();
+    println!("Wifi started!");
 
     let device = interfaces.access_point;
 
@@ -88,15 +95,9 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
 
-    let access_point_config =
-        Config::AccessPoint(AccessPointConfig::default().with_ssid("esp-radio"));
-    println!("Starting wifi");
-    controller.set_config(&access_point_config).unwrap();
-    println!("Wifi started!");
-
-    spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task(runner)).ok();
-    spawner.spawn(run_dhcp(stack, gw_ip_addr_str)).ok();
+    spawner.spawn(connection(controller).unwrap());
+    spawner.spawn(net_task(runner).unwrap());
+    spawner.spawn(run_dhcp(stack, gw_ip_addr_str).unwrap());
 
     let mut rx_buffer = [0; 1536];
     let mut tx_buffer = [0; 1536];
